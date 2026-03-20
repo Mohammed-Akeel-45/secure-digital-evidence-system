@@ -26,11 +26,14 @@ func hashRowContents(row store.AuditLog, prevRowHash string) string {
 
 func (a auditRepo) InsertAuditLog(ctx context.Context, tx pgx.Tx, auditLog store.AuditLog) error {
 	var prevRowHash string
+	// Get the previous hash for the same evidence from the database. `FOR UPDATE` ensures that the row is locked for the duration of the transaction.
 	row := tx.QueryRow(ctx, `
 			SELECT current_hash
 			FROM integrity_schema.audit_logs
+			WHERE evidence_id = @evidenceID
 			ORDER BY created_at DESC LIMIT 1;
-		`)
+			FOR UPDATE
+		`, pgx.NamedArgs{"evidenceID": auditLog.EvidenceId})
 
 	if err := row.Scan(&prevRowHash); err != nil {
 		// no previous row found

@@ -46,3 +46,11 @@ func (c *EnvDBConfig) GetPassword() string {
 func (c *EnvDBConfig) GetDatabase() string {
 	return c.password
 }
+
+func (c *EnvDBConfig) GetMaxOpenConns() int32 {
+	return c.maxOpenConns
+}
+
+func (c *EnvDBConfig) GetMaxIdleConns() int32 {
+	return c.maxIdleConns
+}

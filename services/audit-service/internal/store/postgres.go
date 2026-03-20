@@ -3,6 +3,7 @@ package store
 import (
 	"audit-service/internal/config"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -28,6 +29,11 @@ func NewStorage(config *config.EnvDBConfig, setLimits bool) (*Storage, error) {
 		err := db.Ping()
 		// db connection good.
 		if err == nil {
+			if setLimits {
+				log.Println("Setting connection limits, maxOpen: %i, maxIdle: %i", config.GetMaxOpenConns(), config.GetMaxIdleConns())
+				db.SetMaxOpenConns(int(config.GetMaxOpenConns()))
+				db.SetMaxIdleConns(int(config.GetMaxIdleConns()))
+			}
 			return &Storage{db}, nil
 		}
 
@@ -36,49 +42,4 @@ func NewStorage(config *config.EnvDBConfig, setLimits bool) (*Storage, error) {
 	}
 
 	return nil, fmt.Errorf("could not connect to database after %d retires: %v", tries, err)
-}
-
-func (s *Storage) RegisterEvidenceHash(evidenceDetails *EvidenceDetails) error {
-	query := `
-		INSERT INTO integrity_schema.evidence_hashes (evidence_id, evidence_public_id, algorithm, file_hash)
-		VALUES ($1, $2, $3, $4)
-	`
-	_, err := s.DB.Exec(query, evidenceDetails.EvidenceID, evidenceDetails.EvidencePublicID, evidenceDetails.Algorithm, evidenceDetails.FileHash)
-
-	// err is either nil or `error` in both case its what we want to return.
-	return err
-}
-
-func (s *Storage) InsertCustodyLog(custodyLog *CustodyLog) error {
-	query := `
-		INSERT INTO integrity_schema.custody_logs (evidence_id, case_id, user_id, action_type, remarks, action_metadata)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`
-
-	_, err := s.DB.Exec(query,
-		custodyLog.EvidenceID,
-		custodyLog.CaseID,
-		custodyLog.UserID,
-		custodyLog.ActionType,
-		custodyLog.Remarks,
-		custodyLog.ActionMetadata)
-
-	return err
-}
-
-func (s *Storage) InsertAuditLog(auditLog *AuditLog) error {
-	query := `
-		INSERT INTO integrity_schema.audit_logs (user_id, case_id, evidence_id, action_type, service_name, ip_address)
-		VALUES ($1, $2, $3, $4, $5, $6)
-	`
-
-	_, err := s.DB.Exec(query,
-		auditLog.UserID,
-		auditLog.CaseID,
-		auditLog.EvidenceId,
-		auditLog.ActionType,
-		auditLog.ServiceName,
-		auditLog.IPAddress)
-
-	return err
 }
