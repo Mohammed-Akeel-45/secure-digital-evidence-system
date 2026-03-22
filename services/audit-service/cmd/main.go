@@ -2,11 +2,13 @@ package main
 
 import (
 	"audit-service/internal/config"
+	"audit-service/internal/service"
 	"audit-service/internal/store"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-migrate/migrate/v4"
@@ -22,16 +24,18 @@ func main() {
 		port = "3001"
 	}
 
-	config := config.NewEnvDBConfig(5, 5)
+	config := config.NewEnvDBConfig(5, 5, time.Duration(30*time.Minute))
 
 	runMigrations(config)
 
-	_, err := store.NewStorage(config, false)
+	store, err := store.NewStorage(config, false)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	router := gin.Default()
+
+	router.POST("/api/v1/evidence/register")
 
 	log.Printf("Service running on : %s\n", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", port), router))

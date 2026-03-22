@@ -2,28 +2,31 @@ package config
 
 import (
 	"os"
+	"time"
 )
 
 type EnvDBConfig struct {
-	host         string
-	port         string
-	username     string
-	password     string
-	database     string
-	maxOpenConns int32
-	maxIdleConns int32
+	host            string
+	port            string
+	username        string
+	password        string
+	database        string
+	maxConns        int32
+	minConns        int32
+	maxConnIdleTime time.Duration
 }
 
-func NewEnvDBConfig(maxOpenConns int32, maxIdleConns int32) *EnvDBConfig {
+func NewEnvDBConfig(maxConns int32, minConns int32, maxConnIdleTime time.Duration) *EnvDBConfig {
 
 	return &EnvDBConfig{
-		host:         os.Getenv("DB_HOST"),
-		port:         os.Getenv("DB_PORT"),
-		username:     os.Getenv("DB_USERNAME"),
-		password:     os.Getenv("DB_PASSWORD"),
-		database:     os.Getenv("DB_DATABASE"),
-		maxOpenConns: maxOpenConns,
-		maxIdleConns: maxIdleConns,
+		host:            os.Getenv("DB_HOST"),
+		port:            os.Getenv("DB_PORT"),
+		username:        os.Getenv("DB_USERNAME"),
+		password:        os.Getenv("DB_PASSWORD"),
+		database:        os.Getenv("DB_DATABASE"),
+		maxConns:        maxConns,
+		minConns:        minConns,
+		maxConnIdleTime: maxConnIdleTime,
 	}
 }
 
@@ -47,10 +50,14 @@ func (c *EnvDBConfig) GetDatabase() string {
 	return c.database
 }
 
-func (c *EnvDBConfig) GetMaxOpenConns() int32 {
-	return c.maxOpenConns
+func (c *EnvDBConfig) GetMaxConns() int32 {
+	return c.maxConns
 }
 
-func (c *EnvDBConfig) GetMaxIdleConns() int32 {
-	return c.maxIdleConns
+func (c *EnvDBConfig) GetMinConns() int32 {
+	return c.minConns
+}
+
+func (c *EnvDBConfig) GetMaxConnIdleTime() time.Duration {
+	return c.maxConnIdleTime
 }
