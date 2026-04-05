@@ -140,13 +140,6 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 		}
 	}()
 
-	// Log upload access locally
-	_, _ = h.Store.DB.Exec(
-		`INSERT INTO evidence_access_log (evidence_id, user_id, action, via_service)
-		 VALUES ($1, (SELECT id FROM users WHERE public_id = $2), 'UPLOAD', 'evidence-service')`,
-		insertedID, userPublicID,
-	)
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -196,13 +189,6 @@ func (h *EvidenceHandler) GetEvidence(w http.ResponseWriter, r *http.Request) {
 	}
 	defer body.Close()
 
-	// Audit log
-	_, _ = h.Store.DB.Exec(
-		`INSERT INTO evidence_access_log (evidence_id, user_id, action, via_service)
-		 VALUES ($1, (SELECT id FROM users WHERE public_id = $2), 'DOWNLOAD', 'evidence-service')`,
-		evidence.ID, userPublicID,
-	)
-
 	// Serve with metadata headers
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, evidence.FileName))
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -243,13 +229,6 @@ func (h *EvidenceHandler) StreamEvidenceFile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer body.Close()
-
-	// 4. Log the streaming access
-	_, _ = h.Store.DB.Exec(
-		`INSERT INTO evidence_access_log (evidence_id, user_id, action, via_service)
-		 VALUES ($1, (SELECT id FROM users WHERE public_id = $2), 'STREAM', 'evidence-service')`,
-		evidence.ID, userPublicID,
-	)
 
 	// 5. Pipe the binary stream directly to the response (No buffering)
 	w.Header().Set("Content-Type", "application/octet-stream")
