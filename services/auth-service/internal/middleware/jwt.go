@@ -1,36 +1,20 @@
 package middleware
 
 import (
+	"auth-service-go/internal/models"
 	"context"
-	"evidence-service/internal/models"
+	"crypto/rsa"
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"strings"
-
-	"crypto/rsa"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type contextKey string
-
-const UserIDKey contextKey = "user_id"
-
 var publicKey *rsa.PublicKey
 
-func InitJWT() {
-	pubBytes, err := os.ReadFile("public.pem")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	key, err := jwt.ParseRSAPublicKeyFromPEM(pubBytes)
-	if err != nil {
-		log.Fatal(err)
-	}
-
+func SetPublicKey(key *rsa.PublicKey) {
 	publicKey = key
 }
 
