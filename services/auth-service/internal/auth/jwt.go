@@ -31,6 +31,26 @@ func CheckPassword(password, hash string) bool {
 	return err == nil
 }
 
+func GenerateServiceToken(service models.Service) (string, error) {
+	if privateKey == nil {
+		return "", fmt.Errorf("private key not initialized")
+	}
+
+	serviceClaims := &models.ServiceClaims{
+		ServiceName: service.ServiceName,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 24)),
+		},
+	}
+
+	serviceToken, err := jwt.NewWithClaims(jwt.SigningMethodRS256, serviceClaims).SignedString(privateKey)
+	if err != nil {
+		return "", err
+	}
+
+	return serviceToken, err
+}
+
 // Generate access token with the given claims.
 func GenerateToken(userID string, userName string, email string) (string, error) {
 	if privateKey == nil {
