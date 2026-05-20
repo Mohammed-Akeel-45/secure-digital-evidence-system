@@ -1,0 +1,246 @@
+.root {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 224px;
+  background: var(--surface);
+  border-right: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.sidebarLogo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 18px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.logoMark {
+  width: 34px;
+  height: 34px;
+  background: var(--ink);
+  color: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Stardom', serif;
+  font-size: 20px;
+  flex-shrink: 0;
+  letter-spacing: -0.02em;
+}
+
+.logoName {
+  font-family: 'Stardom', serif;
+  font-size: 16px;
+  color: var(--ink);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.logoTagline {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ── Nav ── */
+.nav {
+  flex: 1;
+  padding: 12px 0;
+  overflow-y: auto;
+}
+
+.navGroup {
+  margin-bottom: 4px;
+}
+
+.navGroupLabel {
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--ink3);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 14px 18px 5px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 18px;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  color: var(--ink3);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+}
+
+.navItem:hover {
+  color: var(--ink2);
+  background: rgba(255,255,255,0.03);
+}
+
+.navActive {
+  color: var(--ink);
+  border-left-color: var(--ink);
+  background: rgba(255,255,255,0.05);
+}
+
+.navIcon {
+  display: flex;
+  align-items: center;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.navActive .navIcon { opacity: 1; }
+
+.navLabel { flex: 1; }
+
+.navArrow {
+  font-size: 16px;
+  color: var(--ink3);
+  line-height: 1;
+  margin-right: -2px;
+}
+
+/* ── User block ── */
+.sidebarUser {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--rule);
+  background: var(--surface2);
+}
+
+.userAvatar {
+  width: 32px;
+  height: 32px;
+  background: var(--rule);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink2);
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.userInfo { flex: 1; min-width: 0; }
+
+.userName {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+
+.userRole {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink3);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.logoutBtn {
+  background: transparent;
+  border: none;
+  color: var(--ink3);
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+}
+.logoutBtn:hover { color: #c44; }
+
+/* ── Main area ── */
+.mainWrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Topbar ── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  height: 44px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  flex-shrink: 0;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.breadcrumbRoot { color: var(--ink3); letter-spacing: 0.06em; }
+.breadcrumbSep  { color: var(--rule); }
+.breadcrumbPage { color: var(--ink2); letter-spacing: 0.04em; text-transform: uppercase; }
+
+/* ── Clock ── */
+.clock {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.clockTime {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink2);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.clockDate {
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink3);
+  letter-spacing: 0.04em;
+}
+
+/* ── Main content ── */
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 36px;
+  background: var(--bg);
+}
+

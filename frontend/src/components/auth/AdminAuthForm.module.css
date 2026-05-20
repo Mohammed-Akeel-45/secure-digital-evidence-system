@@ -1,0 +1,40 @@
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid #222;
+  margin-bottom: 20px;
+}
+
+.tab {
+  padding: 10px 12px;
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #555;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab:hover { color: #aaa; }
+
+.tab.active {
+  color: #fff;
+  border-bottom-color: #fff;
+}
+
+.sectionLabel {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  color: #444;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #1e1e1e;
+}
+

@@ -131,14 +131,10 @@ func (h *AuthHandler) GetServiceToken(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value("claims").(*models.Claims)
 	if !ok {
-		http.Error(w, "Failed to get claims from the token", http.StatusUnauthorized)
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
 		return
 	}
-	userID, err := claims.GetSubject()
-	if err != nil {
-		http.Error(w, "Failed to get user ID from the token", http.StatusUnauthorized)
-		return
-	}
+	userID := claims.UserID
 	var creds models.User
 
 	// Check if the user is an admin.

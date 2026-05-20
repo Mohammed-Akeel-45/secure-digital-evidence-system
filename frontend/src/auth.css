@@ -1,0 +1,61 @@
+/* ── Auth-only dark overrides ── */
+/* These only apply inside AuthShell (dark bg: #0c0c0c) */
+
+.auth-input {
+  width: 100%;
+  background: #0c0c0c;
+  border: 1px solid #222;
+  padding: 9px 11px;
+  color: #fff;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  transition: border-color 0.2s ease;
+  border-radius: 0;
+  appearance: none;
+}
+.auth-input:focus { border-color: #555; }
+.auth-input::placeholder { color: #333; }
+
+.auth-select {
+  width: 100%;
+  background: #0c0c0c;
+  border: 1px solid #222;
+  padding: 9px 11px;
+  color: #fff;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  outline: none;
+  appearance: none;
+  border-radius: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23555'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.auth-btn {
+  width: 100%;
+  padding: 10px;
+  background: #fff;
+  border: none;
+  color: #0c0c0c;
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  margin-top: 4px;
+}
+.auth-btn:hover { opacity: 0.85; }
+.auth-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.auth-note {
+  margin-top: 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  color: #444;
+  text-align: center;
+  line-height: 1.6;
+}
+

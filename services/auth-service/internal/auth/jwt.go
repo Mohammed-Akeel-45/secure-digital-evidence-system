@@ -36,10 +36,9 @@ func GenerateServiceToken(service models.Service) (string, error) {
 		return "", fmt.Errorf("private key not initialized")
 	}
 
-	serviceClaims := &models.Claims{
-		TokenType: "service",
+	serviceClaims := &models.ServiceClaims{
+		ServiceName: service.ServiceName,
 		RegisteredClaims: jwt.RegisteredClaims{
-			Subject:   service.ServiceName,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 24)),
 		},
 	}
