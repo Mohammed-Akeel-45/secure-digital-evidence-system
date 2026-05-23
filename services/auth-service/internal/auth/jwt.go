@@ -37,6 +37,7 @@ func GenerateServiceToken(service models.Service) (string, error) {
 	}
 
 	serviceClaims := &models.ServiceClaims{
+		TokenType:   "service",
 		ServiceName: service.ServiceName,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 24)),
@@ -52,13 +53,14 @@ func GenerateServiceToken(service models.Service) (string, error) {
 }
 
 // Generate access token with the given claims.
-func GenerateToken(userID string, userName string, email string) (string, error) {
+func GenerateToken(orgID string, userID string) (string, error) {
 	if privateKey == nil {
 		return "", fmt.Errorf("private key not initialized")
 	}
 
 	accessClaims := &models.Claims{
 		TokenType: "user",
+		OrgID:     orgID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(60 * time.Minute)),

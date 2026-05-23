@@ -49,7 +49,7 @@ func (h *AuthHandler) AdminRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate the access token. Valid for 1 hour.
-	accToken, err := auth.GenerateToken(adminPublic.ID, adminPublic.Name, adminPublic.Email)
+	accToken, err := auth.GenerateToken(adminPublic.OrgID, adminPublic.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -95,7 +95,7 @@ func (h *AuthHandler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate the access token. Valid for 1 hour.
-	accToken, err := auth.GenerateToken(user.ID, user.Name, user.Email)
+	accToken, err := auth.GenerateToken(user.OrgID, user.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -134,7 +134,7 @@ func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
 		return
 	}
-	userID := claims.UserID
+	userID := claims.Subject
 	var creds models.User
 
 	// Check if the user is an admin.
@@ -185,7 +185,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate the access token. Valid for 1 hour.
-	accToken, err := auth.GenerateToken(user.ID, user.Name, user.Email)
+	accToken, err := auth.GenerateToken(user.OrgID, user.ID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

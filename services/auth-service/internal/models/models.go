@@ -51,9 +51,8 @@ type Service struct {
 }
 
 type Claims struct {
-	UserID   string `json:"id"`
-	UserName string `json:"name"`
-	Email    string `json:"email"`
+	TokenType string `json:"token_type"`
+	OrgID     string `json:"org_id"`
 	jwt.RegisteredClaims
 }
 

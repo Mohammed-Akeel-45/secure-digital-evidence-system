@@ -24,7 +24,7 @@
   border: 1px solid #222;
   color: #555;
   font-family: 'DM Mono', monospace;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
@@ -52,7 +52,7 @@
 .hint {
   margin-top: 8px;
   font-family: 'DM Sans', sans-serif;
-  font-size: 10px;
+  font-size: 14px;
   color: #444;
   line-height: 1.5;
 }

@@ -145,7 +145,7 @@ func (s *Storage) GetUserRoleByID(roleID int) (string, error) {
 func (s *Storage) GetUserByPublicID(ID string) (*models.UserDB, error) {
 	user := &models.UserDB{}
 	query := `
-		SELECT u.public_id as id, u.name, u.email, u.password_hash, o.public_id, o.name
+		SELECT u.public_id, u.name, u.email, u.password_hash, o.public_id as org_id, o.name as org_name
 		FROM users u, organizations o
 		WHERE u.public_id = $1 AND o.id = u.org_id;
 	`
@@ -161,7 +161,7 @@ func (s *Storage) GetUserByPublicID(ID string) (*models.UserDB, error) {
 func (s *Storage) GetUserByEmail(email string) (*models.UserDB, error) {
 	user := &models.UserDB{}
 	query := `
-		SELECT u.public_id as id, u.name, u.email, u.password_hash, o.public_id, o.name
+		SELECT u.public_id, u.name, u.email, u.password_hash, o.public_id as org_id, o.name as org_name
 		FROM users u, organizations o
 		WHERE u.email = $1 AND o.id = u.org_id;
 	`
@@ -193,7 +193,7 @@ func (s *Storage) GetOrgPublicID(ID int) (string, error) {
 func (s *Storage) GetOrgByPublicID(ID string) (*models.Organisation, error) {
 	org := &models.Organisation{}
 	query := `
-		SELECT public_id as id, name
+		SELECT public_id, name
 		FROM organizations
 		WHERE public_id = $1
 	`
