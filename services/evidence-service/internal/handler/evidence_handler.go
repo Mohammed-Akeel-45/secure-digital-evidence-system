@@ -119,7 +119,7 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 	go func() {
 		auditReq := services.AuditRegistrationRequest{
 			EvidenceID:       insertedID,
-			EvidencePublicID: "", 
+			EvidencePublicID: "",
 			Algorithm:        "SHA256",
 			FileHash:         hash,
 			CaseID:           casePublicID,
@@ -129,7 +129,7 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 			ServiceName:      "evidence-service",
 			IPAddress:        r.RemoteAddr,
 		}
-		
+
 		h.Store.DB.Get(&auditReq.EvidencePublicID, "SELECT public_id FROM evidence_schema.evidence WHERE id = $1", insertedID)
 
 		err := h.AuditClient.RegisterAudit(context.Background(), auditReq)
@@ -213,13 +213,21 @@ func (h *EvidenceHandler) StreamEvidenceFile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// 2. Security Check (Mandatory!)
-	userPublicID := r.Context().Value(middleware.UserIDKey).(string)
-	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	hasAccess, err := services.CheckUserCaseAccess(evidence.CaseID, userPublicID, token)
-	if err != nil || !hasAccess {
-		http.Error(w, "Unauthorized", http.StatusForbidden)
-		return
+	claims := r.Context().Value(middleware.UserIDKey).(models.Claims)
+
+	// 2. Security Check only for user requests.
+	if claims.TokenType == "user" {
+		userPublicID, err := claims.GetSubject()
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusForbidden)
+			return
+		}
+		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		hasAccess, err := services.CheckUserCaseAccess(evidence.CaseID, userPublicID, token)
+		if err != nil || !hasAccess {
+			http.Error(w, "Unauthorized", http.StatusForbidden)
+			return
+		}
 	}
 
 	// 3. Connect to S3 stream

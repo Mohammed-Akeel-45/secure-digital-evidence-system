@@ -5,10 +5,12 @@ import (
 	"auth-service-go/internal/handler"
 	"auth-service-go/internal/middleware"
 	"auth-service-go/internal/store"
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
@@ -49,7 +51,11 @@ func main() {
 		log.Fatal("No db connStr provided")
 	}
 
-	db, err := store.NewStorage(connStr)
+	// Background context wrapped with a timeout
+	startupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	db, err := store.NewStorage(startupCtx, connStr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -65,7 +71,12 @@ func main() {
 
 	// Routes with jwt middleware.
 	router.Handle("/api/v1/auth/admin/create-user", middleware.JWTMiddleware(http.HandlerFunc(h.CreateUser))).Methods("POST")
+	router.Handle("/api/v1/auth/admin/get-org-users", middleware.JWTMiddleware(http.HandlerFunc(h.GetOrgUsers))).Methods("GET")
+	router.Handle("/api/v1/auth/admin/create-department", middleware.JWTMiddleware(http.HandlerFunc(h.CreateDepartment))).Methods("POST")
+	router.Handle("/api/v1/auth/admin/get-org-departments", middleware.JWTMiddleware(http.HandlerFunc(h.GetAllOrgDepartments))).Methods("GET")
+	router.Handle("/api/v1/auth/admin/update-user-department", middleware.JWTMiddleware(http.HandlerFunc(h.UpdateUserDepartment))).Methods("POST")
+	router.Handle("/api/v1/auth/admin/delete-department", middleware.JWTMiddleware(http.HandlerFunc(h.DeleteDepartment))).Methods("DELETE")
 
-	log.Println("Service running on :3001")
+	log.Printf("Service running on :%v\n", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", port), router))
 }

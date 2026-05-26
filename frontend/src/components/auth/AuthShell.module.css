@@ -8,8 +8,18 @@
 }
 
 .inner {
-  width: 100%;
-  max-width: 380px;
-  animation: fade-in 0.35s ease;
+    animation: fade-in 0.35s ease;
+}
+
+@media (min-width: 768px) {
+  .inner {
+    width: 550px;
+  }
+}
+
+@media (min-width: 1440px) {
+  .inner {
+    width: 600px;
+  }
 }
 
