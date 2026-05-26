@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+)
 
 type Evidence struct {
 	ID          int64     `db:"id"           json:"id"`
@@ -12,4 +16,9 @@ type Evidence struct {
 	CurrentHash string    `db:"current_hash" json:"current_hash"`
 	UploadedBy  string    `db:"uploaded_by"  json:"uploaded_by"`
 	UploadedAt  time.Time `db:"uploaded_at"  json:"uploaded_at"`
+}
+
+type Claims struct {
+	TokenType string `json:"token_type"`
+	jwt.RegisteredClaims
 }

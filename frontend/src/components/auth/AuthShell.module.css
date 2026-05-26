@@ -1,0 +1,25 @@
+.root {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0c0c0c;
+  padding: 40px 24px;
+}
+
+.inner {
+    animation: fade-in 0.35s ease;
+}
+
+@media (min-width: 768px) {
+  .inner {
+    width: 550px;
+  }
+}
+
+@media (min-width: 1440px) {
+  .inner {
+    width: 600px;
+  }
+}
+

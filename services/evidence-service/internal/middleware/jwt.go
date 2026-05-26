@@ -2,12 +2,15 @@ package middleware
 
 import (
 	"context"
+	"evidence-service/internal/models"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strings"
 
 	"crypto/rsa"
+
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -31,33 +34,49 @@ func InitJWT() {
 	publicKey = key
 }
 
+// JWTMiddleware is a middleware that checks if the request has a valid JWT token.
 func JWTMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
+		// Get the Authorization header.
 		authHeader := r.Header.Get("Authorization")
-
 		if authHeader == "" {
-			http.Error(w, "Missing token", http.StatusUnauthorized)
+			http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
 			return
 		}
 
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		// Check if the Authorization header is in the correct format.
+		parts := strings.Split(authHeader, " ")
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
+			return
+		}
 
-		token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		tokenString := parts[1]
+
+		claims := &models.Claims{}
+
+		// Parse and validate the token
+		token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (any, error) {
+			if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+				return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+			}
 			return publicKey, nil
 		})
-
-		if err != nil || !token.Valid {
-			http.Error(w, "Invalid token", http.StatusUnauthorized)
+		if err != nil {
+			log.Println(err)
+			http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
 			return
 		}
 
-		claims := token.Claims.(jwt.MapClaims)
+		// Check if the token has valid claims.
+		if claims, ok := token.Claims.(*models.Claims); ok && token.Valid {
+			ctx := context.WithValue(r.Context(), "claims", claims)
+			next.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 
-		userID := claims["id"].(string)
+		log.Println(token.Claims)
 
-		ctx := context.WithValue(r.Context(), UserIDKey, userID)
-
-		next.ServeHTTP(w, r.WithContext(ctx))
+		http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
 	})
 }

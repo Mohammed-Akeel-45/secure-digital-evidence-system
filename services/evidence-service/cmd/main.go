@@ -37,9 +37,9 @@ func main() {
 	auditClient := services.NewAuditClient()
 
 	h := &handler.EvidenceHandler{
-		Store:           db,
-		S3Client:        s3Client,
-		AuditClient:     auditClient,
+		Store:       db,
+		S3Client:    s3Client,
+		AuditClient: auditClient,
 	}
 
 	router := mux.NewRouter()
@@ -56,7 +56,7 @@ func main() {
 		middleware.JWTMiddleware(http.HandlerFunc(h.ListEvidence)),
 	).Methods("GET")
 
-	// Raw binary stream from S3 
+	// Raw binary stream from S3
 	router.Handle("/evidence/{id}/file",
 		middleware.JWTMiddleware(http.HandlerFunc(h.StreamEvidenceFile)),
 	).Methods("GET")

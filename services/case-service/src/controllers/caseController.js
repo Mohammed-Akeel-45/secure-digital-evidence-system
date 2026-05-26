@@ -2,10 +2,26 @@ import pool from "../config/db.js";
 
 // Helper: resolve case by public_id
 async function resolveCaseByPublicId(publicId) {
+  const result = await pool.query("SELECT * FROM cases WHERE public_id = $1", [
+    publicId,
+  ]);
+  if (result.rows.length === 0) return null;
+  return result.rows[0];
+}
+
+async function resolveOrgByPublicId(publicId) {
   const result = await pool.query(
-    "SELECT * FROM cases WHERE public_id = $1",
-    [publicId]
+    "SELECT * FROM organizations WHERE public_id = $1",
+    [publicId],
   );
+  if (result.rows.length === 0) return null;
+  return result.rows[0];
+}
+
+async function resolveUserByPublicId(publicId) {
+  const result = await pool.query("SELECT * FROM users WHERE public_id = $1", [
+    publicId,
+  ]);
   if (result.rows.length === 0) return null;
   return result.rows[0];
 }
@@ -16,18 +32,34 @@ const VALID_STATUSES = ["OPEN", "CLOSED", "IN_PROGRESS", "ARCHIVED"];
 // ✅ CREATE CASE
 export const createCase = async (req, res) => {
   const { title, description } = req.body;
-  const userPublicId = req.user.id; // UUID from JWT
+  const userPublicId = req.user.sub; // UUID from JWT
+  const userOrgPublicId = req.user.org_id;
 
   if (!title || title.trim() === "") {
     return res.status(400).json({ error: "Title is required" });
   }
+  if (!userOrgPublicId) {
+    return res.status(400).json({ error: "Organization not found" });
+  }
 
   try {
+    // Resolve user public id to internal id
+    const user = await resolveUserByPublicId(userPublicId);
+    if (!user) {
+      return res.status(400).json({ error: "User not found" });
+    }
+
+    // Resolve org public id to internal id
+    const org = await resolveOrgByPublicId(userOrgPublicId);
+    if (!org) {
+      return res.status(400).json({ error: "Organization not found" });
+    }
+
     const result = await pool.query(
-      `INSERT INTO cases (title, description, created_by)
-       VALUES ($1, $2, $3)
+      `INSERT INTO cases (org_id, title, description, created_by)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [title.trim(), description, userPublicId]
+      [org.id, title.trim(), description, user.id],
     );
 
     const newCase = result.rows[0];
@@ -35,15 +67,8 @@ export const createCase = async (req, res) => {
     // Auto-assign creator to case_users
     await pool.query(
       `INSERT INTO case_users (case_id, user_id, assigned_role)
-       VALUES ($1, (SELECT id FROM users WHERE public_id = $2), 'CREATOR')`,
-      [newCase.id, userPublicId]
-    );
-
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_logs (user_id, case_id, action, details)
-       VALUES ($1, $2, 'CASE_CREATED', $3)`,
-      [userPublicId, newCase.id, JSON.stringify(newCase)]
+       VALUES ($1, $2, 'CREATOR')`,
+      [newCase.id, user.id],
     );
 
     res.status(201).json(newCase);
@@ -54,7 +79,7 @@ export const createCase = async (req, res) => {
 
 // ✅ GET ALL CASES (scoped to user's assigned cases)
 export const getAllCases = async (req, res) => {
-  const userPublicId = req.user.id;
+  const userPublicId = req.user.sub;
 
   try {
     const result = await pool.query(
@@ -64,7 +89,7 @@ export const getAllCases = async (req, res) => {
        INNER JOIN users u ON u.id = cu.user_id
        WHERE u.public_id = $1
        ORDER BY c.created_at DESC`,
-      [userPublicId]
+      [userPublicId],
     );
 
     res.json(result.rows);
@@ -94,7 +119,7 @@ export const getCaseById = async (req, res) => {
 export const updateCaseStatus = async (req, res) => {
   const { id } = req.params; // public_id
   const { status } = req.body;
-  const userPublicId = req.user.id;
+  const userPublicId = req.user.sub;
 
   if (!status) {
     return res.status(400).json({ error: "Status is required" });
@@ -107,6 +132,13 @@ export const updateCaseStatus = async (req, res) => {
   }
 
   try {
+    // Resolve user public id to internal id
+    const user = await resolveUserByPublicId(userPublicId);
+    if (!user) {
+      return res.status(400).json({ error: "User not found" });
+    }
+
+    // Resolve case public id to internal id
     const caseData = await resolveCaseByPublicId(id);
     if (!caseData) {
       return res.status(404).json({ error: "Case not found" });
@@ -114,14 +146,7 @@ export const updateCaseStatus = async (req, res) => {
 
     const result = await pool.query(
       `UPDATE cases SET status = $1 WHERE id = $2 RETURNING *`,
-      [status.toUpperCase(), caseData.id]
-    );
-
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_logs (user_id, case_id, action, details)
-       VALUES ($1, $2, 'CASE_STATUS_UPDATED', $3)`,
-      [userPublicId, caseData.id, JSON.stringify(result.rows[0])]
+      [status.toUpperCase(), caseData.id],
     );
 
     res.json(result.rows[0]);
@@ -133,20 +158,20 @@ export const updateCaseStatus = async (req, res) => {
 // ✅ DELETE CASE (by public_id)
 export const deleteCase = async (req, res) => {
   const { id } = req.params; // public_id
-  const userPublicId = req.user.id;
+  const userPublicId = req.user.sub;
 
   try {
+    // Resolve user public id to internal id
+    const user = await resolveUserByPublicId(userPublicId);
+    if (!user) {
+      return res.status(400).json({ error: "User not found" });
+    }
+
+    // Resolve case public id to internal id
     const caseData = await resolveCaseByPublicId(id);
     if (!caseData) {
       return res.status(404).json({ error: "Case not found" });
     }
-
-    // Audit log BEFORE delete to avoid FK violation
-    await pool.query(
-      `INSERT INTO audit_logs (user_id, case_id, action, details)
-       VALUES ($1, $2, 'CASE_DELETED', $3)`,
-      [userPublicId, caseData.id, JSON.stringify({ deleted_case: caseData })]
-    );
 
     await pool.query("DELETE FROM cases WHERE id = $1", [caseData.id]);
 
@@ -160,13 +185,20 @@ export const deleteCase = async (req, res) => {
 export const assignUserToCase = async (req, res) => {
   const { id } = req.params; // case public_id
   const { user_id, role } = req.body; // user public_id to assign
-  const userPublicId = req.user.id;
+  const userPublicId = req.user.sub;
 
   if (!user_id) {
     return res.status(400).json({ error: "user_id is required" });
   }
 
   try {
+    // Resolve user public id to internal id
+    const user = await resolveUserByPublicId(userPublicId);
+    if (!user) {
+      return res.status(400).json({ error: "User not found" });
+    }
+
+    // Resolve case public id to internal id
     const caseData = await resolveCaseByPublicId(id);
     if (!caseData) {
       return res.status(404).json({ error: "Case not found" });
@@ -175,7 +207,7 @@ export const assignUserToCase = async (req, res) => {
     // Resolve the target user's internal id
     const targetUser = await pool.query(
       "SELECT id FROM users WHERE public_id = $1",
-      [user_id]
+      [user_id],
     );
     if (targetUser.rows.length === 0) {
       return res.status(404).json({ error: "Target user not found" });
@@ -185,18 +217,7 @@ export const assignUserToCase = async (req, res) => {
       `INSERT INTO case_users (case_id, user_id, assigned_role)
        VALUES ($1, $2, $3)
        ON CONFLICT (case_id, user_id) DO NOTHING`,
-      [caseData.id, targetUser.rows[0].id, role || "MEMBER"]
-    );
-
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_logs (user_id, case_id, action, details)
-       VALUES ($1, $2, 'USER_ASSIGNED_TO_CASE', $3)`,
-      [
-        userPublicId,
-        caseData.id,
-        JSON.stringify({ assigned_user: user_id, role: role || "MEMBER" }),
-      ]
+      [caseData.id, targetUser.rows[0].id, role || "MEMBER"],
     );
 
     res.status(201).json({ message: "User assigned to case" });
@@ -220,7 +241,7 @@ export const getCaseUsers = async (req, res) => {
        FROM case_users cu
        INNER JOIN users u ON u.id = cu.user_id
        WHERE cu.case_id = $1`,
-      [caseData.id]
+      [caseData.id],
     );
 
     res.json(result.rows);
@@ -232,9 +253,16 @@ export const getCaseUsers = async (req, res) => {
 // ✅ REMOVE USER FROM CASE
 export const removeUserFromCase = async (req, res) => {
   const { id, userId } = req.params; // case public_id, user public_id
-  const userPublicId = req.user.id;
+  const userPublicId = req.user.sub;
 
   try {
+    // Resolve user public id to internal id
+    const user = await resolveUserByPublicId(userPublicId);
+    if (!user) {
+      return res.status(400).json({ error: "User not found" });
+    }
+
+    // Resolve case public id to internal id
     const caseData = await resolveCaseByPublicId(id);
     if (!caseData) {
       return res.status(404).json({ error: "Case not found" });
@@ -243,7 +271,7 @@ export const removeUserFromCase = async (req, res) => {
     // Resolve target user internal id
     const targetUser = await pool.query(
       "SELECT id FROM users WHERE public_id = $1",
-      [userId]
+      [userId],
     );
     if (targetUser.rows.length === 0) {
       return res.status(404).json({ error: "Target user not found" });
@@ -251,18 +279,7 @@ export const removeUserFromCase = async (req, res) => {
 
     await pool.query(
       "DELETE FROM case_users WHERE case_id = $1 AND user_id = $2",
-      [caseData.id, targetUser.rows[0].id]
-    );
-
-    // Audit log
-    await pool.query(
-      `INSERT INTO audit_logs (user_id, case_id, action, details)
-       VALUES ($1, $2, 'USER_REMOVED_FROM_CASE', $3)`,
-      [
-        userPublicId,
-        caseData.id,
-        JSON.stringify({ removed_user: userId }),
-      ]
+      [caseData.id, targetUser.rows[0].id],
     );
 
     res.json({ message: "User removed from case" });

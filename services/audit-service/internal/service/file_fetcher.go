@@ -24,6 +24,7 @@ func (f *fileFetcher) GetFile(ctx context.Context, evidenceID string) (io.ReadCl
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Authorization", "Bearer ")
 
 	resp, err := f.client.Do(req)
 	if err != nil {
