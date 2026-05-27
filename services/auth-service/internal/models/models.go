@@ -25,8 +25,9 @@ type AdminPublic struct {
 }
 
 type Organisation struct {
-	ID   string `db:"public_id"`
-	Name string `db:"name"`
+	ID       int64  `db:"id"`
+	PublicID string `db:"public_id"`
+	Name     string `db:"name"`
 }
 
 type User struct {
@@ -53,14 +54,9 @@ type Service struct {
 }
 
 type Claims struct {
-	TokenType string `json:"token_type"`
-	OrgID     string `json:"org_id"`
-	jwt.RegisteredClaims
-}
-
-type ServiceClaims struct {
 	TokenType   string `json:"token_type"`
-	ServiceName string `json:"service_name"`
+	OrgID       string `json:"org_id,omitempty"`
+	ServiceName string `json:"service_name,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -73,6 +69,10 @@ type DepartmentDB struct {
 	ID    string `db:"public_id"`
 	Name  string `db:"name"`
 	OrgID string `db:"org_id"`
+}
+
+type DepartmentResolve struct {
+	ID int64 `db:"id"`
 }
 
 type UpdateUserDepartment struct {
@@ -90,4 +90,32 @@ type OrganizationUserDTO struct {
 	Email      string   `db:"email" json:"email"`
 	IsOrgAdmin bool     `db:"is_org_admin" json:"is_org_admin"`
 	Roles      []string `db:"roles" json:"roles"`
+}
+
+type PermissionCheckRequest struct {
+	UserPublicID string          `json:"user_public_id"`
+	Permissions  []string        `json:"permissions"`
+	Scope        PermissionScope `json:"scope"`
+}
+
+type PermissionCheckResponse struct {
+	Allowed bool `json:"allowed"`
+}
+
+type PermissionScope struct {
+	Type               string `json:"type"`
+	OrgPublicID        string `json:"org_public_id,omitempty"`
+	DepartmentPublicID string `json:"department_public_id,omitempty"`
+	CasePublicID       string `json:"case_public_id,omitempty"`
+}
+
+type RoleCreate struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Permissions []string        `json:"permissions"`
+	Scope       PermissionScope `json:"scope"`
+}
+
+type RoleInternal struct {
+	ID int64 `db:"id"`
 }

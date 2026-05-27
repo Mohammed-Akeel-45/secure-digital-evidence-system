@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +11,9 @@ import (
 	"evidence-service/internal/services"
 	"evidence-service/internal/store"
 
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -21,6 +25,16 @@ func main() {
 	connStr := os.Getenv("DB_CONN_STR")
 
 	db, err := store.NewStorage(connStr)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dbStrForMigrations := os.Getenv("DB_STR_FOR_MIGRATION")
+	if dbStrForMigrations == "" {
+		log.Fatal("DB_STR_FOR_MIGRATION not set")
+	}
+	// Run migrations
+	err = runMigrations(dbStrForMigrations)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -68,4 +82,23 @@ func main() {
 
 	log.Println("Evidence Service running on :3003 (with S3 Integration)")
 	http.ListenAndServe(":3003", router)
+}
+
+// Run the latest db migrations.
+func runMigrations(db_str string) error {
+	m, err := migrate.New(
+		"file://./migrations",
+		db_str,
+	)
+	if err != nil {
+		return fmt.Errorf("Migration failed to initialize %v", err)
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("Failed to apply migrations: %v", err)
+	}
+
+	log.Println("Migrations successfully applied")
+
+	return nil
 }

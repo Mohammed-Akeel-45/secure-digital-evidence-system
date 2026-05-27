@@ -8,10 +8,139 @@ import (
 	"log"
 
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 type AuthHandler struct {
 	Store *store.Storage
+}
+
+func (h *AuthHandler) AssignRole(w http.ResponseWriter, r *http.Request) {
+}
+
+func (h *AuthHandler) CreateRole(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+
+	var role *models.RoleCreate
+
+	if err := json.NewDecoder(r.Body).Decode(&role); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the user is an has permission to create a role.
+	permissionCheckRequest := &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Scope:        role.Scope,
+		Permissions:  []string{"CREATE_ROLE"},
+	}
+
+	allowed, err := h.Store.CheckPermissions(ctx, permissionCheckRequest)
+	if err != nil {
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+	}
+	if !allowed {
+		http.Error(w, "User doesn't have permission to create a role", http.StatusUnauthorized)
+		return
+	}
+
+	// Check if the role already exists.
+	if h.Store.CheckRoleExists(ctx, role.Name) {
+		http.Error(w, "Role already exists", http.StatusBadRequest)
+		return
+	}
+
+	err = h.Store.CreateRole(ctx, role)
+	if err != nil {
+		http.Error(w, "Failed to create role", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *AuthHandler) CheckPermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	tokenType := claims.TokenType
+
+	if tokenType != "service" {
+		http.Error(w, "Invalid token type", http.StatusUnauthorized)
+		return
+	}
+
+	var permCheckRequest *models.PermissionCheckRequest
+
+	if err := json.NewDecoder(r.Body).Decode(permCheckRequest); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	allowed, err := h.Store.CheckPermissions(ctx, permCheckRequest)
+	if err != nil {
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	permissionCheckResponse := &models.PermissionCheckResponse{Allowed: allowed}
+
+	json.NewEncoder(w).Encode(permissionCheckResponse)
+}
+
+func (h *AuthHandler) ResolveUserPublicIDToInternalID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	publicID := vars["public_id"]
+
+	userID, err := h.Store.ResolveUserPublicIDToInternalID(ctx, publicID)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Failed to get user", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]int64{"id": userID})
+}
+
+func (h *AuthHandler) ResolveOrgByPublicID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	publicID := vars["public_id"]
+
+	org, err := h.Store.GetOrgByPublicID(ctx, publicID)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Failed to get organisation", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]int64{"id": org.ID})
+}
+
+func (h *AuthHandler) ResolveDepartmentByPublicID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	publicID := vars["public_id"]
+
+	department, err := h.Store.ResolveDepartmentByPublicID(ctx, publicID)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "Failed to get department", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]int64{"id": department.ID})
 }
 
 func (h *AuthHandler) AdminRegister(w http.ResponseWriter, r *http.Request) {

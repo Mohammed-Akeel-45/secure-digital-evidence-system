@@ -17,7 +17,7 @@ function authenticate(req, res, next) {
       algorithms: ["RS256"],
     });
 
-    req.user = decoded;
+    req.tokenClaims = decoded;
 
     next();
   } catch (err) {

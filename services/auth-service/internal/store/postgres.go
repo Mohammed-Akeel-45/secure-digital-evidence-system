@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"os/user"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -38,6 +40,172 @@ func NewStorage(ctx context.Context, connStr string) (*Storage, error) {
 
 	pool.Close()
 	return nil, fmt.Errorf("could not connect to database after retries: %v", err)
+}
+
+func (s *Storage) ResolveCaseByPublicID(ctx context.Context, publicID string) (int64, error) {
+	url := fmt.Sprintf("http://localhost:3003/api/v1/internal/cases/resolve/%s", publicID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", os.Getenv("SERVICE_TOKEN")))
+
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return resp.Body, nil
+	case http.StatusNotFound:
+		resp.Body.Close()
+		return nil, fmt.Errorf("case not found")
+	default:
+		resp.Body.Close()
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+}
+
+func (s *Storage) CheckPermissions(ctx context.Context, permissionCheckRequest *models.PermissionCheckRequest) (bool, error) {
+	var query string
+	var scopeID int64
+	userID, err := s.ResolveUserPublicIDToInternalID(ctx, permissionCheckRequest.UserPublicID)
+	if err != nil {
+		return false, err
+	}
+
+	switch permissionCheckRequest.Scope.Type {
+	case "ORG":
+		org, err := s.GetOrgByPublicID(ctx, permissionCheckRequest.Scope.OrgPublicID)
+		if err != nil {
+			return false, err
+		}
+		scopeID = org.ID
+		query = `
+			SELECT p.name
+			FROM permissions p
+			WHERE p.name = ANY($1::text[])
+			EXCEPT
+			SELECT DISTINCT p.name
+			FROM organization_user_roles our
+			JOIN role_permissions rp
+				ON rp.role_id = our.role_id
+			JOIN permissions p
+				ON p.id = rp.permission_id
+			WHERE our.user_id = $2
+			AND our.org_id = $3;
+		`
+	case "DEPARTMENT":
+		department, err := s.ResolveDepartmentByPublicID(ctx, permissionCheckRequest.Scope.DepartmentPublicID)
+		if err != nil {
+			return false, err
+		}
+		scopeID = department.ID
+		query = `
+			SELECT p.name
+			FROM permissions p
+			WHERE p.name = ANY($1::text[])
+			EXCEPT
+			SELECT DISTINCT p.name
+			FROM department_user_roles dur
+			JOIN role_permissions rp
+				ON rp.role_id = dur.role_id
+			JOIN permissions p
+				ON p.id = rp.permission_id
+			WHERE dur.user_id = $2
+			AND dur.department_id = $3;
+		`
+	case "CASE":
+		caseID, err := s.ResolveCaseByPublicID(ctx, permissionCheckRequest.Scope.CasePublicID)
+		if err != nil {
+			return false, err
+		}
+		scopeID = caseID
+		query = `
+			SELECT p.name
+			FROM permissions p
+			WHERE p.name = ANY($1::text[])
+			EXCEPT
+			SELECT DISTINCT p.name
+			FROM case_user_roles cur
+			JOIN role_permissions rp
+				ON rp.role_id = cur.role_id
+			JOIN permissions p
+				ON p.id = rp.permission_id
+			WHERE cur.user_id = $2
+			AND cur.case_id = $3;
+		`
+	default:
+		return false, fmt.Errorf("Invalid scope type")
+	}
+
+	rows, _ := s.DB.Query(ctx, query, permissionCheckRequest.Permissions, userID, scopeID)
+	defer rows.Close()
+	// The queries return a set of permissions missing for the users, so an empty set means the user has all the permissions.
+	if rows.Err() == pgx.ErrNoRows {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (s *Storage) CheckRoleExists(ctx context.Context, roleName string) bool {
+	exists := 0
+	query := `SELECT 1 FROM roles WHERE name = $1`
+
+	// Scan returns an error if no rows are returned.
+	err := s.DB.QueryRow(ctx, query, roleName).Scan(&exists)
+	if err != nil {
+		return false
+	}
+
+	return exists == 1
+}
+
+func (s *Storage) CreateRole(ctx context.Context, role *models.RoleCreate) error {
+	// Start a transaction.
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	// Ensures the transaction is rolled back if there is an error.
+	defer tx.Rollback(ctx)
+
+	// Insert the role into the database.
+	var roleId int64
+	err = tx.QueryRow(ctx, `INSERT INTO roles (name, description) VALUES ($1, $2)`, role.Name, role.Description).Scan(&roleId)
+	if err != nil {
+		return err
+	}
+
+	// Attach the permissions to the role.
+	result, err := tx.Exec(
+		ctx,
+		`
+		INSERT INTO role_permission (role_id, permission_id)
+		SELECT $1, p.id
+		FROM permissions p
+		WHERE p.name = ANY($2::text[])
+		`,
+		roleId,
+		role.Permissions,
+	)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected := result.RowsAffected()
+
+	// Check if the number of rows affected is equal to the number of permissions.
+	if rowsAffected != int64(len(role.Permissions)) {
+		return fmt.Errorf("Invalid permissions provided")
+	}
+
+	// Commit the transaction as there are no errors.
+	tx.Commit(ctx)
+	return nil
 }
 
 func (s *Storage) CheckUserIsOrgAdmin(ctx context.Context, userID string) bool {
@@ -147,6 +315,18 @@ func (s *Storage) GetUserRoleByID(ctx context.Context, roleID int) (string, erro
 	return roleName, nil
 }
 
+func (s *Storage) ResolveUserPublicIDToInternalID(ctx context.Context, publicID string) (int64, error) {
+	var ID int64
+	query := `SELECT id FROM users WHERE public_id = $1`
+	err := s.DB.QueryRow(ctx, query, publicID).Scan(&ID)
+
+	if err != nil {
+		return 0, err
+	}
+
+	return ID, nil
+}
+
 func (s *Storage) GetUserByPublicID(ctx context.Context, ID string) (*models.UserDB, error) {
 	user := &models.UserDB{}
 	query := `
@@ -198,12 +378,12 @@ func (s *Storage) GetOrgPublicID(ctx context.Context, ID int) (string, error) {
 func (s *Storage) GetOrgByPublicID(ctx context.Context, ID string) (*models.Organisation, error) {
 	org := &models.Organisation{}
 	query := `
-		SELECT public_id, name
+		SELECT id, public_id, name
 		FROM organizations
 		WHERE public_id = $1
 	`
 
-	err := s.DB.QueryRow(ctx, query, ID).Scan(&org.ID, &org.Name)
+	err := s.DB.QueryRow(ctx, query, ID).Scan(&org.ID, &org.PublicID, &org.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +405,7 @@ func (s *Storage) GetOrgUsers(ctx context.Context, orgID string) ([]models.Organ
 		FROM organizations o
 		JOIN users u 
 			ON u.org_id = o.id
-		LEFT JOIN user_roles ur 
+		LEFT JOIN organization_user_roles ur
 			ON ur.user_id = u.id
 		LEFT JOIN roles r 
 			ON r.id = ur.role_id
@@ -267,6 +447,22 @@ func (s *Storage) CreateDepartment(ctx context.Context, department *models.Depar
 	}
 
 	return departmentID, nil
+}
+
+func (s *Storage) ResolveDepartmentByPublicID(ctx context.Context, ID string) (*models.DepartmentResolve, error) {
+	department := &models.DepartmentResolve{}
+	query := `
+		SELECT id
+		FROM departments
+		WHERE public_id = $1
+	`
+
+	err := s.DB.QueryRow(ctx, query, ID).Scan(&department.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return department, nil
 }
 
 func (s *Storage) GetDepartmentByPublicID(ctx context.Context, ID string) (*models.DepartmentDB, error) {

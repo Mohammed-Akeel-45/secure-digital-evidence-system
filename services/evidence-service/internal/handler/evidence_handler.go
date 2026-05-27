@@ -96,7 +96,7 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 	// Insert into DB — capture the internal BIGINT ID for the audit service
 	var insertedID int64
 	err = h.Store.DB.QueryRow(
-		`INSERT INTO evidence_schema.evidence
+		`INSERT INTO evidence
 		(case_id, file_name, file_size, storage_path, current_hash, uploaded_by)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`,
@@ -130,7 +130,7 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 			IPAddress:        r.RemoteAddr,
 		}
 
-		h.Store.DB.Get(&auditReq.EvidencePublicID, "SELECT public_id FROM evidence_schema.evidence WHERE id = $1", insertedID)
+		h.Store.DB.Get(&auditReq.EvidencePublicID, "SELECT public_id FROM evidence WHERE id = $1", insertedID)
 
 		err := h.AuditClient.RegisterAudit(context.Background(), auditReq)
 		if err != nil {
@@ -161,7 +161,7 @@ func (h *EvidenceHandler) GetEvidence(w http.ResponseWriter, r *http.Request) {
 	err := h.Store.DB.Get(&evidence,
 		`SELECT id, public_id, case_id, file_name, file_size, storage_path,
 		        current_hash, uploaded_by, uploaded_at
-		 FROM evidence_schema.evidence WHERE public_id = $1`,
+		 FROM evidence WHERE public_id = $1`,
 		evidencePublicID,
 	)
 	if err != nil {
@@ -205,7 +205,7 @@ func (h *EvidenceHandler) StreamEvidenceFile(w http.ResponseWriter, r *http.Requ
 	// 1. Look up storage path
 	var evidence models.Evidence
 	err := h.Store.DB.Get(&evidence,
-		`SELECT id, case_id, storage_path FROM evidence_schema.evidence WHERE public_id = $1`,
+		`SELECT id, case_id, storage_path FROM evidence WHERE public_id = $1`,
 		evidencePublicID,
 	)
 	if err != nil {
@@ -271,7 +271,7 @@ func (h *EvidenceHandler) ListEvidence(w http.ResponseWriter, r *http.Request) {
 	err = h.Store.DB.Select(&evidenceList,
 		`SELECT id, public_id, case_id, file_name, file_size,
 		        storage_path, current_hash, uploaded_by, uploaded_at
-		 FROM evidence_schema.evidence
+		 FROM evidence
 		 WHERE case_id = $1
 		 ORDER BY uploaded_at DESC`,
 		casePublicID,

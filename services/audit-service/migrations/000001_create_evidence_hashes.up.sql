@@ -1,6 +1,3 @@
-CREATE SCHEMA IF NOT EXISTS integrity_schema;
-SET search_path TO integrity_schema, public;
-
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 CREATE TABLE IF NOT EXISTS integrity_schema.evidence_hashes(

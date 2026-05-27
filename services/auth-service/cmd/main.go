@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -51,6 +54,14 @@ func main() {
 		log.Fatal("No db connStr provided")
 	}
 
+	dbStrForMigrations := os.Getenv("DB_STR_FOR_MIGRATION")
+
+	// Run latest migrations.
+	err = runMigrations(dbStrForMigrations)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// Background context wrapped with a timeout
 	startupCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -69,14 +80,44 @@ func main() {
 	router.HandleFunc("/api/v1/auth/login", h.Login).Methods("POST")
 	router.HandleFunc("/api/v1/auth/get-service-token", h.GetServiceToken).Methods("POST")
 
+	// role routes.
+	router.Handle("/api/v1/auth/assign-role", middleware.JWTMiddleware(http.HandlerFunc(h.AssignRole))).Methods("POST")
+
 	// Routes with jwt middleware.
+	// Internal routes.
+	router.Handle("/api/v1/auth/internal/org/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveOrgByPublicID))).Methods("GET")
+	router.Handle("/api/v1/auth/internal/org/department/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveDepartmentByPublicID))).Methods("GET")
+	router.Handle("/api/v1/auth/internal/user/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveUserPublicIDToInternalID))).Methods("GET")
+
+	// user routes.
+	// Scope and list of permissions to check are to be passed as query params.
+	// router.Handle("/api/v1/auth/user/check-permissions", middleware.JWTMiddleware(http.HandlerFunc(h.HasPermissions))).Methods("GET")
 	router.Handle("/api/v1/auth/admin/create-user", middleware.JWTMiddleware(http.HandlerFunc(h.CreateUser))).Methods("POST")
 	router.Handle("/api/v1/auth/admin/get-org-users", middleware.JWTMiddleware(http.HandlerFunc(h.GetOrgUsers))).Methods("GET")
+	router.Handle("/api/v1/auth/admin/update-user-department", middleware.JWTMiddleware(http.HandlerFunc(h.UpdateUserDepartment))).Methods("POST")
+
+	// department routes.
 	router.Handle("/api/v1/auth/admin/create-department", middleware.JWTMiddleware(http.HandlerFunc(h.CreateDepartment))).Methods("POST")
 	router.Handle("/api/v1/auth/admin/get-org-departments", middleware.JWTMiddleware(http.HandlerFunc(h.GetAllOrgDepartments))).Methods("GET")
-	router.Handle("/api/v1/auth/admin/update-user-department", middleware.JWTMiddleware(http.HandlerFunc(h.UpdateUserDepartment))).Methods("POST")
 	router.Handle("/api/v1/auth/admin/delete-department", middleware.JWTMiddleware(http.HandlerFunc(h.DeleteDepartment))).Methods("DELETE")
 
 	log.Printf("Service running on :%v\n", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", port), router))
+}
+
+// Run the latest db migrations.
+func runMigrations(db_str string) error {
+	m, err := migrate.New("file://./migrations", db_str)
+
+	if err != nil {
+		return fmt.Errorf("Migration failed to initialize %v", err)
+	}
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("Failed to apply migrations: %v", err)
+	}
+
+	log.Println("Migrations successfully applied")
+
+	return nil
 }
