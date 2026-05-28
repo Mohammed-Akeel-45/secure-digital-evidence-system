@@ -99,7 +99,8 @@ type PermissionCheckRequest struct {
 }
 
 type PermissionCheckResponse struct {
-	Allowed bool `json:"allowed"`
+	Allowed            bool     `json:"allowed"`
+	MissingPermissions []string `json:"missing_permissions"`
 }
 
 type PermissionScope struct {
@@ -109,13 +110,48 @@ type PermissionScope struct {
 	CasePublicID       string `json:"case_public_id,omitempty"`
 }
 
+type AttachPermissionsToRole struct {
+	RoleName    string   `json:"role_name"`
+	Permissions []string `json:"permission_names"`
+}
+
+type DetachPermissionsFromRole struct {
+	RoleName    string   `json:"role_name"`
+	Permissions []string `json:"permission_names"`
+}
+
 type RoleCreate struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Permissions []string        `json:"permissions"`
-	Scope       PermissionScope `json:"scope"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Permissions []string `json:"permissions"`
+}
+
+type RoleDelete struct {
+	Name string `json:"name"`
 }
 
 type RoleInternal struct {
 	ID int64 `db:"id"`
+}
+
+type Role struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+type RoleAssignment struct {
+	Names              []string        `json:"role_names"`
+	TargetUserPublicID string          `json:"target_user_id"`
+	Scope              PermissionScope `json:"scope"`
+}
+
+type RoleRevoke struct {
+	Names              []string        `json:"role_names"`
+	TargetUserPublicID string          `json:"target_user_id"`
+	Scope              PermissionScope `json:"scope"`
+}
+
+type Permission struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }

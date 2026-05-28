@@ -23,7 +23,7 @@ app.get("/internal/cases/resolve/:public_id", async (req, res) => {
 
   const result = await resolveCaseByPublicId(public_id);
   const caseId = result ? result.id : null;
-  res.json({ case_internal_id: caseId });
+  res.json({ id: caseId });
 });
 
 // mount case routes

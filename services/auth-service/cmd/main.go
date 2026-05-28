@@ -80,14 +80,24 @@ func main() {
 	router.HandleFunc("/api/v1/auth/login", h.Login).Methods("POST")
 	router.HandleFunc("/api/v1/auth/get-service-token", h.GetServiceToken).Methods("POST")
 
+	// Routes with jwt middleware.
 	// role routes.
 	router.Handle("/api/v1/auth/assign-role", middleware.JWTMiddleware(http.HandlerFunc(h.AssignRole))).Methods("POST")
+	router.Handle("/api/v1/auth/revoke-role", middleware.JWTMiddleware(http.HandlerFunc(h.RevokeRole))).Methods("POST")
+	router.Handle("/api/v1/auth/detach-permissions-from-role", middleware.JWTMiddleware(http.HandlerFunc(h.DetachPermissionsFromRole))).Methods("POST")
+	router.Handle("/api/v1/auth/attach-permissions-to-role", middleware.JWTMiddleware(http.HandlerFunc(h.AttachPermissionsToRole))).Methods("POST")
+	router.Handle("/api/v1/auth/create-role", middleware.JWTMiddleware(http.HandlerFunc(h.CreateRole))).Methods("POST")
+	router.Handle("/api/v1/auth/delete-role", middleware.JWTMiddleware(http.HandlerFunc(h.DeleteRole))).Methods("POST")
+	router.Handle("/api/v1/auth/get-org-roles", middleware.JWTMiddleware(http.HandlerFunc(h.GetOrgRoles))).Methods("GET")
+	router.Handle("/api/v1/auth/get-user-roles/{user_id}", middleware.JWTMiddleware(http.HandlerFunc(h.GetUserRoles))).Methods("GET")
+	router.Handle("/api/v1/auth/get-all-permissions", middleware.JWTMiddleware(http.HandlerFunc(h.GetAllPermissions))).Methods("GET")
+	router.Handle("/api/v1/auth/get-role-permissions/{role_name}", middleware.JWTMiddleware(http.HandlerFunc(h.GetRolePermissions))).Methods("GET")
 
-	// Routes with jwt middleware.
 	// Internal routes.
 	router.Handle("/api/v1/auth/internal/org/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveOrgByPublicID))).Methods("GET")
 	router.Handle("/api/v1/auth/internal/org/department/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveDepartmentByPublicID))).Methods("GET")
 	router.Handle("/api/v1/auth/internal/user/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveUserPublicIDToInternalID))).Methods("GET")
+	router.Handle("/api/v1/auth/internal/check-permissions", middleware.JWTMiddleware(http.HandlerFunc(h.CheckPermissions))).Methods("POST")
 
 	// user routes.
 	// Scope and list of permissions to check are to be passed as query params.

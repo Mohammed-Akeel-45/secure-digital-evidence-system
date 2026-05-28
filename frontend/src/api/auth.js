@@ -75,6 +75,36 @@ export async function createDepartment({ name }) {
   });
 }
 
+export async function createRole({ name, description, permissions }) {
+  return request(`${AUTH_BASE}/create-role`, {
+    method: "POST",
+    body: JSON.stringify({ name, description, permissions }),
+  });
+}
+
+export async function deleteRole(roleName) {
+  return request(`${AUTH_BASE}/delete-role`, {
+    method: "POST",
+    body: JSON.stringify({ name: roleName }),
+  });
+}
+
+export async function getAllPermissions() {
+  return request(`${AUTH_BASE}/get-all-permissions`);
+}
+
+export async function getRolePermissions(roleName) {
+  return request(`${AUTH_BASE}/get-role-permissions/${roleName}`);
+}
+
+export async function getOrgRoles() {
+  return request(`${AUTH_BASE}/get-org-roles`);
+}
+
+export async function getUserRoles(userId) {
+  return request(`${AUTH_BASE}/get-user-roles/${userId}`);
+}
+
 export async function getOrgDepartments() {
   return request(`${AUTH_BASE}/admin/get-org-departments`);
 }
