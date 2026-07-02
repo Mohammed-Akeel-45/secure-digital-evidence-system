@@ -100,8 +100,6 @@ func main() {
 	router.Handle("/api/v1/auth/internal/check-permissions", middleware.JWTMiddleware(http.HandlerFunc(h.CheckPermissions))).Methods("POST")
 
 	// user routes.
-	// Scope and list of permissions to check are to be passed as query params.
-	// router.Handle("/api/v1/auth/user/check-permissions", middleware.JWTMiddleware(http.HandlerFunc(h.HasPermissions))).Methods("GET")
 	router.Handle("/api/v1/auth/admin/create-user", middleware.JWTMiddleware(http.HandlerFunc(h.CreateUser))).Methods("POST")
 	router.Handle("/api/v1/auth/admin/get-org-users", middleware.JWTMiddleware(http.HandlerFunc(h.GetOrgUsers))).Methods("GET")
 	router.Handle("/api/v1/auth/admin/update-user-department", middleware.JWTMiddleware(http.HandlerFunc(h.UpdateUserDepartment))).Methods("POST")
