@@ -3,6 +3,7 @@ package main
 import (
 	"auth-service-go/internal/auth"
 	"auth-service-go/internal/handler"
+	"auth-service-go/internal/httpcalls"
 	"auth-service-go/internal/middleware"
 	"auth-service-go/internal/store"
 	"context"
@@ -25,6 +26,10 @@ func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "3001"
+	}
+	serviceToken := os.Getenv("SERVICE_TOKEN")
+	if serviceToken == "" {
+		log.Fatal("No service token provided")
 	}
 
 	// Get private key from "private.pem" file.
@@ -71,7 +76,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	h := &handlerauth.AuthHandler{Store: db}
+	httpCaller := &httpcalls.HTTPCaller{ServiceToken: serviceToken}
+
+	h := &handlerauth.AuthHandler{Store: db, HTTPCaller: httpCaller}
 	router := mux.NewRouter()
 
 	// Routes without jwt middleware.

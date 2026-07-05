@@ -8,13 +8,40 @@ export async function resolveCaseByPublicId(publicId) {
     publicId,
   ]);
   if (result.rows.length === 0) return null;
-  return result.rows[0];
+  const c = result.rows[0];
+  return {
+    ...c,
+    id: Number(c.id),
+    org_id: Number(c.org_id),
+    dept_id: Number(c.dept_id),
+  };
+}
+
+// Helper: resolve case by internal id
+export const resolveCaseInternalIdToPublicId = async (id) => {
+  const result = await pool.queryRow(
+    "SELECT public_id FROM cases WHERE id = $1",
+    [id],
+  );
+  if (result) return result.public_id;
+  return null;
+};
+
+// Helper: resolve multiple case internal ids to public ids
+export async function resolveCaseInternalIdsToPublicIds(internalIds) {
+  if (!internalIds || internalIds.length === 0) return [];
+  const result = await pool.query(
+    "SELECT id, public_id, title FROM cases WHERE id = ANY($1::bigint[])",
+    [internalIds],
+  );
+  result.rows.forEach((row) => (row.id = Number(row.id)));
+  return result.rows;
 }
 
 async function resolveOrgByPublicId(publicId) {
   try {
     const response = await fetch(
-      `http://auth-service-go:3001/api/v1/auth/internal/org/resolve/${publicId}`,
+      `http://sdes_auth:3001/api/v1/auth/internal/org/resolve/${publicId}`,
       {
         method: "GET",
         headers: {
@@ -35,10 +62,36 @@ async function resolveOrgByPublicId(publicId) {
   }
 }
 
+async function resolveDepartmentByPublicId(publicId) {
+  try {
+    const response = await fetch(
+      `http://sdes_auth:3001/api/v1/auth/internal/org/department/resolve/${publicId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${serviceToken}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to resolve department ID: ${response.statusText}`,
+      );
+    }
+    const result = await response.json();
+    return result.id;
+  } catch (err) {
+    console.error("Failed to resolve department ID:", err);
+    throw err;
+  }
+}
+
 async function resolveUserByPublicId(publicId) {
   try {
     const response = await fetch(
-      `http://auth-service-go:3001/api/v1/auth/internal/user/resolve/${publicId}`,
+      `http://sdes_auth:3001/api/v1/auth/internal/user/resolve/${publicId}`,
       {
         method: "GET",
         headers: {
@@ -62,9 +115,9 @@ async function resolveUserByPublicId(publicId) {
 // Valid case statuses
 const VALID_STATUSES = ["OPEN", "CLOSED", "IN_PROGRESS", "ARCHIVED"];
 
-// ✅ CREATE CASE
+// CREATE CASE
 export const createCase = async (req, res) => {
-  const { title, description, priority } = req.body;
+  const { title, description, priority, dept_id } = req.body;
   const userPublicId = req.tokenClaims.sub; // UUID from JWT
   const userOrgPublicId = req.tokenClaims.org_id;
 
@@ -88,11 +141,17 @@ export const createCase = async (req, res) => {
       return res.status(400).json({ error: "Organization not found" });
     }
 
+    // Resolve department public id to internal id if provided
+    let departmentId = null;
+    if (dept_id) {
+      departmentId = await resolveDepartmentByPublicId(dept_id);
+    }
+
     const result = await pool.query(
-      `INSERT INTO cases (org_id, title, description, priority, created_by)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO cases (org_id, title, description, priority, created_by, dept_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *`,
-      [orgId, title.trim(), description, priority, userId],
+      [orgId, title.trim(), description, priority, userId, departmentId],
     );
 
     const newCase = result.rows[0];
@@ -112,28 +171,87 @@ export const createCase = async (req, res) => {
   }
 };
 
-// ✅ GET ALL CASES (scoped to user's assigned cases)
-export const getAllCases = async (req, res) => {
-  const userPublicId = req.tokenClaims.sub;
+export const getOrgCasesInternal = async (req, res) => {
+  const { org_id } = req.params;
+  const token = req.tokenClaims;
+  if (token.token_type !== "service") {
+    return res.status(401).json({ error: "Invalid token type" });
+  }
 
   try {
-    const result = await pool.query(
-      `SELECT c.*
-       FROM cases c
-       INNER JOIN case_users cu ON cu.case_id = c.id
-       INNER JOIN auth_schema.users u ON u.id = cu.user_id
-       WHERE u.public_id = $1
-       ORDER BY c.created_at DESC`,
-      [userPublicId],
-    );
+    const query = `
+        SELECT id
+        FROM cases
+        WHERE org_id = $1
+      `;
 
+    const cases = await pool.query(query, [org_id]);
+    let ids = [];
+    for (let i = 0; i < cases.rowCount; i++) {
+      ids.push(Number(cases.rows[i].id));
+    }
+    res.status(200).json({ ids });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get org cases", err });
+  }
+};
+
+export const getDepartmentCasesInternal = async (req, res) => {
+  const { department_id } = req.params;
+  const token = req.tokenClaims;
+  if (token.token_type !== "service") {
+    return res.status(401).json({ error: "Invalid token type" });
+  }
+
+  try {
+    const query = `
+        SELECT id
+        FROM cases
+        WHERE dept_id = $1
+      `;
+
+    const cases = await pool.query(query, [department_id]);
+    let ids = [];
+    for (let i = 0; i < cases.rowCount; i++) {
+      ids.push(Number(cases.rows[i].id));
+    }
+    res.status(200).json({ ids });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to get department cases", err });
+  }
+};
+
+// GET ALL CASES (scoped to user's assigned cases)
+export const getAllCases = async (req, res) => {
+  const userPublicId = req.tokenClaims.sub;
+  const { department_id } = req.query;
+
+  try {
+    let query = `
+      SELECT c.*
+      FROM cases c
+      INNER JOIN case_users cu ON cu.case_id = c.id
+      INNER JOIN auth_schema.users u ON u.id = cu.user_id
+      WHERE u.public_id = $1
+    `;
+    const params = [userPublicId];
+
+    if (department_id) {
+      const internalDeptId = await resolveDepartmentByPublicId(department_id);
+      query += ` AND c.dept_id = $2`;
+      params.push(internalDeptId);
+    }
+
+    query += ` ORDER BY c.created_at DESC`;
+
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
-// ✅ GET CASE BY PUBLIC_ID
+// GET CASE BY PUBLIC_ID
 export const getCaseById = async (req, res) => {
   const { id } = req.params;
 
@@ -150,7 +268,7 @@ export const getCaseById = async (req, res) => {
   }
 };
 
-// ✅ UPDATE CASE STATUS (by public_id)
+// UPDATE CASE STATUS (by public_id)
 export const updateCaseStatus = async (req, res) => {
   const { id } = req.params; // public_id
   const { status } = req.body;
@@ -190,7 +308,7 @@ export const updateCaseStatus = async (req, res) => {
   }
 };
 
-// ✅ DELETE CASE (by public_id)
+// DELETE CASE (by public_id)
 export const deleteCase = async (req, res) => {
   const { id } = req.params; // public_id
   const userPublicId = req.tokenClaims.sub;
@@ -216,10 +334,37 @@ export const deleteCase = async (req, res) => {
   }
 };
 
-// ✅ ASSIGN USER TO CASE
+export const deleteDepartmentCases = async (req, res) => {
+  const { org_id, department_id: dept_id } = req.query;
+  const token = req.tokenClaims;
+
+  if (token.token_type !== "service") {
+    return res.status(401).json({ error: "invalid token type" });
+  }
+  if (isNaN(dept_id)) {
+    return res
+      .status(400)
+      .json({ error: "department internal id needs to be provided" });
+  }
+
+  try {
+    await pool.query(
+      `
+            DELETE FROM cases
+            WHERE org_id = $1 AND dept_id = $2
+        `,
+      [org_id, dept_id],
+    );
+    res.status(200).json({ message: "department cases deleted" });
+  } catch (err) {
+    res.status(500).json({ error: "Error deleting department cases" });
+  }
+};
+
+// ASSIGN USER TO CASE
 export const assignUserToCase = async (req, res) => {
   const { id } = req.params; // case public_id
-  const { user_id, role } = req.body; // user public_id to assign
+  const { user_id } = req.body; // user public_id to assign
   const userPublicId = req.tokenClaims.sub;
 
   if (!user_id) {
@@ -246,10 +391,10 @@ export const assignUserToCase = async (req, res) => {
     }
 
     await pool.query(
-      `INSERT INTO case_users (case_id, user_id, assigned_role)
-       VALUES ($1, $2, $3)
+      `INSERT INTO case_users (case_id, user_id)
+       VALUES ($1, $2)
        ON CONFLICT (case_id, user_id) DO NOTHING`,
-      [caseData.id, targetUserId, role || "MEMBER"],
+      [caseData.id, targetUserId],
     );
 
     res.status(201).json({ message: "User assigned to case" });
@@ -258,7 +403,7 @@ export const assignUserToCase = async (req, res) => {
   }
 };
 
-// ✅ GET USERS ASSIGNED TO A CASE
+// GET USERS ASSIGNED TO A CASE
 export const getCaseUsers = async (req, res) => {
   const { id } = req.params; // case public_id
 
@@ -269,7 +414,7 @@ export const getCaseUsers = async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT u.public_id, u.name, u.email, cu.assigned_role, cu.assigned_at
+      `SELECT u.public_id, u.name, u.email, cu.assigned_at
        FROM case_users cu
        INNER JOIN auth_schema.users u ON u.id = cu.user_id
        WHERE cu.case_id = $1`,
@@ -282,7 +427,7 @@ export const getCaseUsers = async (req, res) => {
   }
 };
 
-// ✅ REMOVE USER FROM CASE
+// REMOVE USER FROM CASE
 export const removeUserFromCase = async (req, res) => {
   const { id, userId } = req.params; // case public_id, user public_id
   const userPublicId = req.tokenClaims.sub;

@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS
     status character varying(40) NULL DEFAULT 'OPEN'::character varying,
     priority character varying(20) NULL,
     created_by bigint NULL,
-    created_at timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP
+    created_at timestamp without time zone NULL DEFAULT CURRENT_TIMESTAMP,
+    dept_id bigint NULL
   );
 

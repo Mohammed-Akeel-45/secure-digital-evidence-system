@@ -26,4 +26,3 @@ router.get("/:id/users", authenticate, getCaseUsers);
 router.delete("/:id/users/:userId", authenticate, removeUserFromCase);
 
 export default router;
-

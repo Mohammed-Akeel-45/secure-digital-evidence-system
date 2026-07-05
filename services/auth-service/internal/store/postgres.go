@@ -3,11 +3,8 @@ package store
 import (
 	"auth-service-go/internal/models"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,7 +16,7 @@ type Storage struct {
 }
 
 // Create new storage handler.
-// Takes connection string to the database.
+// Takes connection string to the database and service token.
 // Returns pointer to the new storage handler created.
 func NewStorage(ctx context.Context, connStr string) (*Storage, error) {
 	const tries = 5
@@ -43,114 +40,41 @@ func NewStorage(ctx context.Context, connStr string) (*Storage, error) {
 	return nil, fmt.Errorf("could not connect to database after retries: %v", err)
 }
 
-func (s *Storage) ResolveCasePublicIDToInternalID(
-	ctx context.Context,
-	publicID string,
-) (int64, error) {
-
-	url := fmt.Sprintf(
-		"http://case_service/api/v1/internal/cases/resolve/%s",
-		publicID,
-	)
-
-	req, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		url,
-		nil,
-	)
-	if err != nil {
-		return 0, err
+func (s *Storage) ScopePublicIDToInternalID(ctx context.Context, scope models.Scope) (int64, error) {
+	switch scope.Type {
+	case "ORG":
+		org, err := s.GetOrgByPublicID(ctx, scope.PublicID)
+		if err != nil {
+			return 0, err
+		}
+		return org.ID, nil
+	case "DEPARTMENT":
+		department, err := s.ResolveDepartmentByPublicID(ctx, scope.PublicID)
+		if err != nil {
+			return 0, err
+		}
+		return department.ID, nil
+	default:
+		return 0, fmt.Errorf("Invalid scope type or scope resolved by handler")
 	}
-
-	req.Header.Set(
-		"Authorization",
-		"Bearer "+os.Getenv("SERVICE_TOKEN"),
-	)
-
-	client := &http.Client{
-		Timeout: 5 * time.Second,
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf(
-			"unexpected status code: %d",
-			resp.StatusCode,
-		)
-	}
-
-	var result struct {
-		ID int64 `json:"id"`
-	}
-
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	if err != nil {
-		return 0, err
-	}
-
-	return result.ID, nil
 }
 
-func (s *Storage) AssignRole(ctx context.Context, roleAssignment *models.RoleAssignment) error {
-	var query string
-	var scopeID int64
-
+func (s *Storage) AssignRole(ctx context.Context, roleAssignment *models.RoleAssignment, scopeID int64) error {
 	targetUserID, err := s.ResolveUserPublicIDToInternalID(ctx, roleAssignment.TargetUserPublicID)
 	if err != nil {
 		return err
 	}
 
-	switch roleAssignment.Scope.Type {
-	case "ORG":
-		org, err := s.GetOrgByPublicID(ctx, roleAssignment.Scope.OrgPublicID)
-		if err != nil {
-			return err
-		}
-		scopeID = org.ID
-		query = `
-			INSERT INTO organization_user_roles (user_id, role_id, org_id)
-			SELECT $1, r.id, $2
-			FROM roles r
-			WHERE r.name IN $3::text[]
-			ON CONFLICT DO NOTHING
-		`
-	case "DEPARTMENT":
-		department, err := s.ResolveDepartmentByPublicID(ctx, roleAssignment.Scope.DepartmentPublicID)
-		if err != nil {
-			return err
-		}
-		scopeID = department.ID
-		query = `
-			INSERT INTO department_user_roles (user_id, role_id, department_id)
-			SELECT $1, r.id, $2
-			FROM roles r
-			WHERE r.name IN $3::text[]
-			ON CONFLICT DO NOTHING
-		`
-	case "CASE":
-		caseID, err := s.ResolveCasePublicIDToInternalID(ctx, roleAssignment.Scope.CasePublicID)
-		if err != nil {
-			return err
-		}
-		scopeID = caseID
-		query = `
-			INSERT INTO case_user_roles (user_id, role_id, case_id)
-			SELECT $1, r.id, $2
-			FROM roles r
-			WHERE r.name IN $3::text[]
-			ON CONFLICT DO NOTHING
-		`
-	default:
-		return fmt.Errorf("Invalid scope type")
-	}
-
-	_, err = s.DB.Exec(ctx, query, targetUserID, scopeID, roleAssignment.Names)
+	query := `
+		INSERT INTO user_roles (user_id, role_id)
+		SELECT $1, r.id
+		FROM roles r
+		WHERE r.name = ANY($2::text[])
+		  AND r.scope_type = $3
+		  AND r.scope_id = $4
+		ON CONFLICT DO NOTHING
+	`
+	_, err = s.DB.Exec(ctx, query, targetUserID, roleAssignment.Names, roleAssignment.Scope.Type, scopeID)
 	if err != nil {
 		return err
 	}
@@ -158,68 +82,24 @@ func (s *Storage) AssignRole(ctx context.Context, roleAssignment *models.RoleAss
 	return nil
 }
 
-func (s *Storage) RevokeRole(ctx context.Context, roleRevoke *models.RoleRevoke) error {
-	var query string
-	var scopeID int64
-
+func (s *Storage) RevokeRole(ctx context.Context, roleRevoke *models.RoleRevoke, scopeID int64) error {
 	targetUserID, err := s.ResolveUserPublicIDToInternalID(ctx, roleRevoke.TargetUserPublicID)
 	if err != nil {
 		return err
 	}
-	switch roleRevoke.Scope.Type {
-	case "ORG":
-		org, err := s.GetOrgByPublicID(ctx, roleRevoke.Scope.OrgPublicID)
-		if err != nil {
-			return err
-		}
-		scopeID = org.ID
-		query = `
-			DELETE FROM organization_user_roles
-			WHERE user_id = $1
-			AND org_id = $2
-			AND role_id IN (
-				SELECT id
-				FROM roles
-				WHERE name IN $3::text[]
-			)
-		`
-	case "DEPARTMENT":
-		department, err := s.ResolveDepartmentByPublicID(ctx, roleRevoke.Scope.DepartmentPublicID)
-		if err != nil {
-			return err
-		}
-		scopeID = department.ID
-		query = `
-			DELETE FROM department_user_roles
-			WHERE user_id = $1
-			AND department_id = $2
-			AND role_id IN (
-				SELECT id
-				FROM roles
-				WHERE name = $3::text[]
-			)
-		`
-	case "CASE":
-		caseID, err := s.ResolveCasePublicIDToInternalID(ctx, roleRevoke.Scope.CasePublicID)
-		if err != nil {
-			return err
-		}
-		scopeID = caseID
-		query = `
-			DELETE FROM case_user_roles
-			WHERE user_id = $1
-			AND case_id = $2
-			AND role_id IN (
-				SELECT id
-				FROM roles
-				WHERE name = $3::text[]
-			)
-		`
-	default:
-		return fmt.Errorf("Invalid scope type")
-	}
 
-	_, err = s.DB.Exec(ctx, query, targetUserID, scopeID, roleRevoke.Names)
+	query := `
+		DELETE FROM user_roles
+		WHERE user_id = $1
+		  AND role_id IN (
+			SELECT id
+			FROM roles
+			WHERE name = ANY($2::text[])
+			  AND scope_type = $3
+			  AND scope_id = $4
+		  )
+	`
+	_, err = s.DB.Exec(ctx, query, targetUserID, roleRevoke.Names, roleRevoke.Scope.Type, scopeID)
 	if err != nil {
 		return err
 	}
@@ -227,26 +107,28 @@ func (s *Storage) RevokeRole(ctx context.Context, roleRevoke *models.RoleRevoke)
 	return nil
 }
 
-func (s *Storage) AttachPermissionsToRole(ctx context.Context, orgPublicID string, attachPermissions *models.AttachPermissionsToRole) error {
-	org, err := s.GetOrgByPublicID(ctx, orgPublicID)
-	if err != nil {
-		return err
-	}
-	orgID := org.ID
-
+func (s *Storage) AttachPermissionsToRole(ctx context.Context, orgPublicID string, attachPermissions *models.AttachPermissionsToRole, scopeID int64) error {
 	query := `
 		WITH permissions_to_attach AS (
 			SELECT id
 			FROM permissions
 			WHERE name LIKE ANY($1::text[])
 		)
-		INSERT INTO role_permission (role_id, permission_id)
+		INSERT INTO role_permissions (role_id, permission_id)
 		SELECT r.id, p.id
 		FROM roles r, permissions_to_attach p
-		WHERE r.name = $2 AND r.org_id = $3
+		WHERE r.name = $2 AND r.scope_type = $3 AND r.scope_id = $4
 	`
 
-	_, err = s.DB.Exec(ctx, query, attachPermissions.Permissions, attachPermissions.RoleName, orgID)
+	_, err := s.DB.Exec(
+		ctx,
+		query,
+		attachPermissions.Permissions,
+		attachPermissions.RoleName,
+		attachPermissions.Scope.Type,
+		scopeID,
+	)
+
 	if err != nil {
 		return err
 	}
@@ -254,25 +136,20 @@ func (s *Storage) AttachPermissionsToRole(ctx context.Context, orgPublicID strin
 	return nil
 }
 
-func (s *Storage) DetachPermissionsFromRole(ctx context.Context, orgPublicID string, detachPermissions *models.DetachPermissionsFromRole) error {
-	org, err := s.GetOrgByPublicID(ctx, orgPublicID)
-	if err != nil {
-		return err
-	}
-	orgID := org.ID
-
+func (s *Storage) DetachPermissionsFromRole(ctx context.Context, detachPermissions *models.DetachPermissionsFromRole, scopeID int64) error {
 	query := `
 		WITH permissions_to_detach AS (
 			SELECT id
 			FROM permissions
 			WHERE name LIKE ANY($1::text[])
 		)
-		DELETE FROM role_permission
+		DELETE FROM role_permissions
 		WHERE role_id IN (
 			SELECT r.id
 			FROM roles r
 			WHERE r.name = $2
-			AND r.org_id = $3
+			AND r.scope_type = $3
+			AND r.scope_id = $4
 		)
 		AND permission_id IN (
 			SELECT p.id
@@ -280,7 +157,15 @@ func (s *Storage) DetachPermissionsFromRole(ctx context.Context, orgPublicID str
 		)
 	`
 
-	_, err = s.DB.Exec(ctx, query, detachPermissions.Permissions, detachPermissions.RoleName, orgID)
+	_, err := s.DB.Exec(
+		ctx,
+		query,
+		detachPermissions.Permissions,
+		detachPermissions.RoleName,
+		detachPermissions.Scope.Type,
+		scopeID,
+	)
+
 	if err != nil {
 		return err
 	}
@@ -288,9 +173,9 @@ func (s *Storage) DetachPermissionsFromRole(ctx context.Context, orgPublicID str
 	return nil
 }
 
-func (s *Storage) CheckPermissions(ctx context.Context, permissionCheckRequest *models.PermissionCheckRequest) ([]string, error) {
+func (s *Storage) CheckPermissions(ctx context.Context, permissionCheckRequest *models.PermissionCheckRequest, caseDetails *models.CaseDetails) ([]string, error) {
+	var rows pgx.Rows
 	var query string
-	var scopeID int64
 	userID, err := s.ResolveUserPublicIDToInternalID(ctx, permissionCheckRequest.UserPublicID)
 	if err != nil {
 		return []string{}, err
@@ -298,70 +183,77 @@ func (s *Storage) CheckPermissions(ctx context.Context, permissionCheckRequest *
 
 	switch permissionCheckRequest.Scope.Type {
 	case "ORG":
-		org, err := s.GetOrgByPublicID(ctx, permissionCheckRequest.Scope.OrgPublicID)
+		org, err := s.GetOrgByPublicID(ctx, permissionCheckRequest.Scope.PublicID)
 		if err != nil {
 			return []string{}, err
 		}
-		scopeID = org.ID
 		query = `
 			SELECT p.name
 			FROM permissions p
 			WHERE p.name LIKE ANY($1::text[])
 			EXCEPT
 			SELECT DISTINCT p.name
-			FROM organization_user_roles our
-			JOIN role_permissions rp
-				ON rp.role_id = our.role_id
-			JOIN permissions p
-				ON p.id = rp.permission_id
-			WHERE our.user_id = $2
-			AND our.org_id = $3;
+			FROM user_roles ur
+			JOIN roles r ON r.id = ur.role_id
+			JOIN role_permissions rp ON rp.role_id = r.id
+			JOIN permissions p ON p.id = rp.permission_id
+			WHERE ur.user_id = $2
+			  AND r.scope_type = 'ORG' AND r.scope_id = $3;
 		`
+		rows, _ = s.DB.Query(ctx, query, permissionCheckRequest.Permissions, userID, org.ID)
 	case "DEPARTMENT":
-		department, err := s.ResolveDepartmentByPublicID(ctx, permissionCheckRequest.Scope.DepartmentPublicID)
+		department, err := s.ResolveDepartmentByPublicID(ctx, permissionCheckRequest.Scope.PublicID)
 		if err != nil {
 			return []string{}, err
 		}
-		scopeID = department.ID
 		query = `
 			SELECT p.name
 			FROM permissions p
 			WHERE p.name LIKE ANY($1::text[])
 			EXCEPT
 			SELECT DISTINCT p.name
-			FROM department_user_roles dur
-			JOIN role_permissions rp
-				ON rp.role_id = dur.role_id
-			JOIN permissions p
-				ON p.id = rp.permission_id
-			WHERE dur.user_id = $2
-			AND dur.department_id = $3;
+			FROM user_roles ur
+			JOIN roles r ON r.id = ur.role_id
+			JOIN role_permissions rp ON rp.role_id = r.id
+			JOIN permissions p ON p.id = rp.permission_id
+			WHERE ur.user_id = $2
+			  AND (
+				(r.scope_type = 'DEPARTMENT' AND r.scope_id = $3)
+				OR
+				(r.scope_type = 'ORG' AND r.scope_id = (
+					SELECT org_id FROM auth_schema.departments WHERE id = $3
+				))
+			  );
 		`
+		rows, _ = s.DB.Query(ctx, query, permissionCheckRequest.Permissions, userID, department.ID)
 	case "CASE":
-		caseID, err := s.ResolveCasePublicIDToInternalID(ctx, permissionCheckRequest.Scope.CasePublicID)
-		if err != nil {
-			return []string{}, err
+		if caseDetails == nil {
+			return []string{}, fmt.Errorf("Case details must be provided by the handler layer for CASE scope check")
 		}
-		scopeID = caseID
 		query = `
 			SELECT p.name
 			FROM permissions p
 			WHERE p.name LIKE ANY($1::text[])
 			EXCEPT
 			SELECT DISTINCT p.name
-			FROM case_user_roles cur
-			JOIN role_permissions rp
-				ON rp.role_id = cur.role_id
-			JOIN permissions p
-				ON p.id = rp.permission_id
-			WHERE cur.user_id = $2
-			AND cur.case_id = $3;
+			FROM user_roles ur
+			JOIN roles r ON r.id = ur.role_id
+			JOIN role_permissions rp ON rp.role_id = r.id
+			JOIN permissions p ON p.id = rp.permission_id
+			WHERE ur.user_id = $2
+			  AND (
+				(r.scope_type = 'CASE' AND r.scope_id = $3)
+				OR
+				(r.scope_type = 'DEPARTMENT' AND r.scope_id = $4)
+				OR
+				(r.scope_type = 'ORG' AND r.scope_id = $5)
+			  );
 		`
+		rows, _ = s.DB.Query(ctx, query, permissionCheckRequest.Permissions, userID, caseDetails.ID, caseDetails.DeptID, caseDetails.OrgID)
 	default:
 		return []string{}, fmt.Errorf("Invalid scope type")
 	}
 
-	rows, _ := s.DB.Query(ctx, query, permissionCheckRequest.Permissions, userID, scopeID)
 	defer rows.Close()
 
 	// Scan the rows into a slice of strings.
@@ -378,44 +270,61 @@ func (s *Storage) CheckPermissions(ctx context.Context, permissionCheckRequest *
 	return missingPermissions, nil
 }
 
-func (s *Storage) CheckRoleExists(ctx context.Context, roleName string) bool {
+func (s *Storage) CheckRoleExists(ctx context.Context, roleName string, scopeType string, scopeIDInternal int64) (bool, error) {
 	exists := 0
-	query := `SELECT 1 FROM roles WHERE name = $1`
+	query := `SELECT 1 FROM roles WHERE name = $1 AND scope_type = $2 AND scope_id = $3`
 
 	// Scan returns an error if no rows are returned.
-	err := s.DB.QueryRow(ctx, query, roleName).Scan(&exists)
+	err := s.DB.QueryRow(ctx, query, roleName, scopeType, scopeIDInternal).Scan(&exists)
 	if err != nil {
-		return false
+		// No rows match the given role details, meaning role doesn't already exist.
+		if err == pgx.ErrNoRows {
+			return false, nil
+		}
+		// Some other error
+		return false, fmt.Errorf("Error querying db")
 	}
 
-	return exists == 1
+	// A row was returned by db that matchs the given row details.
+	return true, nil
 }
 
-func (s *Storage) CreateRole(ctx context.Context, role *models.RoleCreate) (*models.RoleInternal, error) {
+func (s *Storage) CreateRole(ctx context.Context, orgPublicID string, role *models.RoleCreate, scopeID int64) (*models.RoleInternal, error) {
+	org, err := s.GetOrgByPublicID(ctx, orgPublicID)
+	if err != nil {
+		return nil, err
+	}
+	orgID := org.ID
+
 	// Start a transaction.
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
-	// Ensures the transaction is rolled back if there is an error.
 	defer tx.Rollback(ctx)
+
+	query := `INSERT INTO roles (name, description, org_id, scope_type, scope_id) 
+			  VALUES ($1, $2, $3, $4, $5) 
+			  RETURNING id`
 
 	// Insert the role into the database.
 	var roleId int64
-	err = tx.QueryRow(ctx, `INSERT INTO roles (name, description) VALUES ($1, $2)`, role.Name, role.Description).Scan(&roleId)
+	err = tx.QueryRow(ctx, query, role.Name, role.Description, orgID, role.Scope.Type, scopeID).Scan(&roleId)
 	if err != nil {
 		return nil, err
 	}
 
-	// Attach the permissions to the role.
-	result, err := tx.Exec(
-		ctx,
-		`
-		INSERT INTO role_permission (role_id, permission_id)
+	query = `
+		INSERT INTO role_permissions (role_id, permission_id)
 		SELECT $1, p.id
 		FROM permissions p
 		WHERE p.name LIKE ANY($2::text[])
-		`,
+	`
+
+	// Attach the permissions to the role.
+	result, err := tx.Exec(
+		ctx,
+		query,
 		roleId,
 		role.Permissions,
 	)
@@ -437,20 +346,13 @@ func (s *Storage) CreateRole(ctx context.Context, role *models.RoleCreate) (*mod
 	return createdRole, nil
 }
 
-func (s *Storage) DeleteRole(ctx context.Context, orgPublicID string, roleDelete *models.RoleDelete) error {
-	org, err := s.GetOrgByPublicID(ctx, orgPublicID)
-	if err != nil {
-		return err
-	}
-	orgID := org.ID
-
+func (s *Storage) DeleteRole(ctx context.Context, roleDelete *models.RoleDelete, scopeID int64) error {
 	query := `
-		DELETE FROM roles
-		WHERE name = $1
-		AND org_id = $2
+		DELETE FROM roles 
+		WHERE name = $1 AND scope_type = $2 AND scope_id = $3 
 	`
 
-	_, err = s.DB.Exec(ctx, query, roleDelete.Name, orgID)
+	_, err := s.DB.Exec(ctx, query, roleDelete.Name, roleDelete.Scope.Type, scopeID)
 	if err != nil {
 		return err
 	}
@@ -458,21 +360,47 @@ func (s *Storage) DeleteRole(ctx context.Context, orgPublicID string, roleDelete
 	return nil
 }
 
-func (s *Storage) GetOrgRoles(ctx context.Context, orgPublicID string) ([]models.Role, error) {
-	query := `
-		SELECT r.name, r.description
-		FROM roles r
-		JOIN organizations o on o.id = r.org_id
-		WHERE o.public_id = $1
-	`
-
-	rows, err := s.DB.Query(ctx, query, orgPublicID)
+func (s *Storage) GetOrgRoles(ctx context.Context, orgPublicID string, scopeType string) ([]models.Role, error) {
+	org, err := s.GetOrgByPublicID(ctx, orgPublicID)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	orgID := org.ID
 
-	roles, err := pgx.CollectRows(rows, pgx.RowToStructByName[models.Role])
+	var query string
+	var rows pgx.Rows
+	switch scopeType {
+	case "ORG":
+		query = ` 
+			SELECT r.public_id, r.name, r.description, r.scope_type, o.public_id::text as scope_id, o.name as scope_name
+			FROM roles r
+			JOIN organizations o ON r.scope_id = o.id
+			WHERE r.org_id = $1 AND r.scope_type = 'ORG' 
+		`
+		rows, err = s.DB.Query(ctx, query, orgID)
+	case "DEPARTMENT":
+		query = `
+			SELECT r.public_id, r.name, r.description, r.scope_type, d.public_id as scope_id, d.name as scope_name
+			FROM roles r
+			JOIN departments d ON r.scope_id = d.id
+			WHERE r.org_id = $1 AND r.scope_type = 'DEPARTMENT' 
+		`
+		rows, err = s.DB.Query(ctx, query, orgID)
+	case "CASE":
+		query = `
+			SELECT r.public_id, r.name, r.description, r.scope_type, r.scope_id::text as scope_id
+			FROM roles r
+			WHERE r.org_id = $1 AND r.scope_type = 'CASE' 
+		`
+		rows, err = s.DB.Query(ctx, query, orgID)
+	default:
+		return nil, fmt.Errorf("Invalid scope type")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	roles, err := pgx.CollectRows(rows, pgx.RowToStructByNameLax[models.Role])
 	if err != nil {
 		return nil, err
 	}
@@ -482,9 +410,9 @@ func (s *Storage) GetOrgRoles(ctx context.Context, orgPublicID string) ([]models
 
 func (s *Storage) GetUserRoles(ctx context.Context, userID int64) ([]models.Role, error) {
 	query := `
-		SELECT r.name, r.description
+		SELECT r.name, r.description, r.scope_type
 		FROM roles r
-		JOIN organization_user_roles ur
+		JOIN user_roles ur
 			ON ur.role_id = r.id
 		WHERE ur.user_id = $1
 	`
@@ -512,15 +440,11 @@ func (s *Storage) CheckUserIsOrgAdmin(ctx context.Context, userEmail string) boo
 			WHERE email = $1
 		)
 		SELECT 1
-		FROM organization_user_roles ur
-		JOIN selected_user u
-		ON u.id = ur.user_id
-		WHERE u.org_id = ur.org_id
-		AND ur.role_id IN (
-			SELECT id
-			FROM roles
-			WHERE name = 'ORG_ADMIN'
-		)
+		FROM user_roles ur
+		JOIN roles r ON r.id = ur.role_id
+		JOIN selected_user u ON u.id = ur.user_id
+		WHERE r.org_id = u.org_id
+		  AND r.name = 'ORG_ADMIN'
 	`
 
 	err := s.DB.QueryRow(ctx, query, userEmail).Scan(&isAdmin)
@@ -578,8 +502,8 @@ func (s *Storage) RegisterOrgAndAdmin(ctx context.Context, org *models.Oraganisa
 	// Create admin role.
 	var roleId int64
 	err = tx.QueryRow(ctx, `
-		INSERT INTO roles (name, description, org_id) 
-		VALUES ('ORG_ADMIN', 'Organisation administrator role', $1)
+		INSERT INTO roles (name, description, org_id, scope_type, scope_id) 
+		VALUES ('ORG_ADMIN', 'Organisation administrator role', $1, 'ORG', $1)
 		RETURNING id
 		`, orgID).Scan(&roleId)
 	if err != nil {
@@ -606,17 +530,11 @@ func (s *Storage) RegisterOrgAndAdmin(ctx context.Context, org *models.Oraganisa
 	_, err = tx.Exec(
 		ctx,
 		`
-		WITH org AS (
-			SELECT id
-			FROM organizations
-			WHERE public_id = $1
-		)
-		INSERT INTO organization_user_roles (user_id, role_id, org_id)
-		SELECT u.id, $2, o.id
-		FROM users u, org o
-		WHERE u.public_id = $3
+		INSERT INTO user_roles (user_id, role_id)
+		SELECT u.id, $1
+		FROM users u
+		WHERE u.public_id = $2
 		`,
-		adminPublic.OrgID,
 		roleId,
 		adminPublic.ID,
 	)
@@ -766,7 +684,7 @@ func (s *Storage) GetOrgByPublicID(ctx context.Context, ID string) (*models.Orga
 	return org, nil
 }
 
-func (s *Storage) GetOrgUsers(ctx context.Context, orgID string) ([]models.OrganizationUserDTO, error) {
+func (s *Storage) GetOrgUsers(ctx context.Context, orgID int64) ([]models.OrganizationUserDTO, error) {
 	query := `
 		SELECT 
 			u.public_id,
@@ -780,11 +698,11 @@ func (s *Storage) GetOrgUsers(ctx context.Context, orgID string) ([]models.Organ
 		FROM organizations o
 		JOIN users u 
 			ON u.org_id = o.id
-		LEFT JOIN organization_user_roles ur
+		LEFT JOIN user_roles ur
 			ON ur.user_id = u.id
 		LEFT JOIN roles r 
 			ON r.id = ur.role_id
-		WHERE o.public_id = $1 
+		WHERE o.id = $1 
 		GROUP BY u.id;
 	`
 	rows, err := s.DB.Query(ctx, query, orgID)
@@ -857,7 +775,7 @@ func (s *Storage) GetDepartmentByPublicID(ctx context.Context, ID string) (*mode
 }
 
 // GetAllOrgDepartments fetches all departments for a given organization.
-func (s *Storage) GetAllOrgDepartments(ctx context.Context, orgID string) ([]models.DepartmentDB, error) {
+func (s *Storage) GetAllOrgDepartments(ctx context.Context, orgID int64) ([]models.DepartmentDB, error) {
 	query := `
 		SELECT public_id, name, org_id
 		FROM departments
@@ -900,16 +818,57 @@ func (s *Storage) UpdateUserDepartment(ctx context.Context, userID string, depar
 	return nil
 }
 
-// DeleteDepartment deletes a department with the given public id from the organisation.
-func (s *Storage) DeleteDepartment(ctx context.Context, departmentID string) error {
+// DeleteDepartmentStart begins a transaction, deletes the department, and returns the tx, deptID and orgID.
+func (s *Storage) DeleteDepartmentStart(ctx context.Context, departmentPublicID string) (pgx.Tx, int64, int64, error) {
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("failed to start transaction: %w", err)
+	}
+
 	query := `
 		DELETE FROM departments
 		WHERE public_id = $1
+		RETURNING id, org_id
 	`
 
-	_, err := s.DB.Exec(ctx, query, departmentID)
+	var deptID int64
+	var orgID int64
+	err = tx.QueryRow(ctx, query, departmentPublicID).Scan(&deptID, &orgID)
 	if err != nil {
-		return err
+		tx.Rollback(ctx)
+		return nil, 0, 0, fmt.Errorf("error deleting department: %w", err)
+	}
+
+	return tx, deptID, orgID, nil
+}
+
+// DeleteDepartmentRoles deletes roles associated with the department
+func (s *Storage) DeleteDepartmentRoles(ctx context.Context, tx pgx.Tx, deptID int64) error {
+	// Delete department roles.
+	query := `
+		DELETE FROM roles
+		WHERE scope_type = 'DEPARTMENT' AND scope_id = $1
+	`
+	_, err := tx.Exec(ctx, query, deptID)
+	if err != nil {
+		return fmt.Errorf("error deleting department roles: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Storage) DeleteCaseRoles(ctx context.Context, tx pgx.Tx, caseIDs []int64) error {
+	// Delete case roles.
+	query := `
+		DELETE FROM roles
+		WHERE scope_type = 'CASE' AND scope_id = ANY($1::bigint[])
+	`
+	result, err := tx.Exec(ctx, query, caseIDs)
+	if err != nil {
+		return fmt.Errorf("error deleting case roles: %w", err)
+	}
+	if result.RowsAffected() == 0 && len(caseIDs) > 0 {
+		return fmt.Errorf("no rows affected")
 	}
 
 	return nil

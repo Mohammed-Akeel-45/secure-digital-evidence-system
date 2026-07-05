@@ -2,16 +2,33 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppLayout } from '../components/AppLayout';
 import { Field, ErrorBanner, SuccessBanner } from '../components/auth/FormParts';
-import { createMember, getCases, createCase, getCaseUsers, getOrgUsers } from '../api/auth';
+import {
+    createMember,
+    getCases,
+    createCase,
+    getCaseUsers,
+    getOrgUsers,
+    createDepartment,
+    deleteDepartment,
+    getOrgDepartments,
+    createRole,
+    deleteRole,
+    getOrgRoles,
+    getAllPermissions,
+    getEvidence,
+    uploadEvidence,
+    downloadEvidence
+} from '../api/auth';
 
 const NAV = [
     { type: 'section', label: 'Operations' },
     { id: 'overview', label: 'Overview' },
     { id: 'cases', label: 'Case Management' },
-    { id: 'evidence', label: 'Evidence' },
     { type: 'section', label: 'Organization' },
     { id: 'members', label: 'Members' },
+    { id: 'departments', label: 'Departments' },
     { type: 'section', label: 'Security' },
+    { id: 'roles', label: 'Roles' },
     { id: 'audit', label: 'Audit Log' },
 ];
 
@@ -119,29 +136,9 @@ function Overview({ cases, evidence }) {
 
 // ── Cases ─────────────────────────────────────────────────────────────────────
 
-function Cases({ cases, onRefresh, onNavigateToEvidence }) {
-    const [form, setForm] = useState({ title: '', description: '', priority: 'low' });
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
-    const [loading, setLoading] = useState(false);
+function Cases({ cases, onRefresh }) {
     const [expanded, setExpanded] = useState(null);
     const [caseUsers, setCaseUsers] = useState({});
-
-    const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
-
-    const submit = async (e) => {
-        e.preventDefault();
-        if (!form.title.trim()) { setError('TITLE IS REQUIRED'); return; }
-        setError(''); setSuccess(''); setLoading(true);
-        try {
-            await createCase({ title: form.title, description: form.description, priority: form.priority });
-            setSuccess('CASE CREATED');
-            setForm({ title: '', description: '' });
-            onRefresh();
-        } catch (err) {
-            setError(err.message.toUpperCase());
-        } finally { setLoading(false); }
-    };
 
     const expand = async (caseId) => {
         if (expanded === caseId) { setExpanded(null); return; }
@@ -157,14 +154,14 @@ function Cases({ cases, onRefresh, onNavigateToEvidence }) {
     return (
         <div className="animate-slide">
             <div className="page-title">Case Management</div>
-            <div className="page-sub">Create and manage investigation cases</div>
+            <div className="page-sub">View and manage investigation cases and evidence</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
                 <div className="card">
                     <SectionTitle>All Cases ({cases.length})</SectionTitle>
                     {cases.length === 0
-                        ? <Empty>No cases yet. Create your first case →</Empty>
+                        ? <Empty>No cases yet.</Empty>
                         : cases.map(c => (
-                            <div key={c.public_id}>
+                            <div key={c.public_id} style={{ borderBottom: '1px solid var(--rule2)', paddingBottom: 12 }}>
                                 <Row onClick={() => expand(c.public_id)}>
                                     <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink3)', width: 80, flexShrink: 0 }}>{c.public_id?.slice(0, 8)}...</span>
                                     <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{c.title}</span>
@@ -179,62 +176,70 @@ function Cases({ cases, onRefresh, onNavigateToEvidence }) {
                                             ? <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink3)', marginBottom: 10 }}>No users assigned</div>
                                             : caseUsers[c.public_id].map(u => (
                                                 <div key={u.public_id} style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 4 }}>
-                                                    {u.name} <span style={{ color: 'var(--ink3)', fontFamily: 'var(--mono)', fontSize: 9 }}>({u.assigned_role})</span>
+                                                    {u.name}
                                                 </div>
                                             ))}
-                                        <button className="btn" style={{ fontSize: 10, padding: '5px 12px', marginTop: 6 }} onClick={() => onNavigateToEvidence(c.public_id)}>
-                                            View Evidence →
-                                        </button>
+
+                                        <div style={{ borderTop: '1px solid var(--rule2)', marginTop: 12, paddingTop: 12 }}>
+                                            <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', marginBottom: 6, letterSpacing: '0.08em' }}>CASE EVIDENCE</div>
+                                            <EvidenceSection caseId={c.public_id} />
+                                        </div>
                                     </div>
                                 )}
                             </div>
                         ))}
                 </div>
                 <div className="card" style={{ alignSelf: 'start' }}>
-                    <SectionTitle>New Case</SectionTitle>
-                    <ErrorBanner message={error} />
-                    <SuccessBanner message={success} />
-                    <form onSubmit={submit}>
-                        <Field label="Title">
-                            <input className="input" value={form.title} onChange={set('title')} placeholder="Case title" />
-                        </Field>
-                        <Field label="Description">
-                            <textarea className="input" value={form.description} onChange={set('description')} placeholder="Optional details..." style={{ height: 80, resize: 'none' }} />
-                        </Field>
-                        <Field label="Priority">
-                            <select className="select" value={form.priority} onChange={set('priority')}>
-                                <option value="low">Low</option>
-                                <option value="medium">Medium</option>
-                                <option value="high">High</option>
-                            </select>
-                        </Field>
-                        <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={loading}>
-                            {loading ? 'Creating...' : 'Create Case'}
-                        </button>
-                    </form>
+                    <SectionTitle>Case Creation Relocated</SectionTitle>
+                    <div style={{ fontSize: 12, color: 'var(--ink2)', lineHeight: 1.5 }}>
+                        To create a new case, go to the <strong>Departments</strong> screen, click a department to view it, and use the creation form there.
+                    </div>
                 </div>
             </div>
         </div>
     );
 }
 
-// ── Evidence ──────────────────────────────────────────────────────────────────
-
+// ── Evidence Section (Case Level) ────────────────────────────────────────────────
 const EVIDENCE_TYPES = ['Document', 'Image', 'Video', 'Audio', 'Archive', 'Other'];
 
-function EvidencePage({ cases, evidence, setEvidence, filterCaseId, setFilterCaseId }) {
+function EvidenceSection({ caseId }) {
     const fileRef = useRef();
     const [dragging, setDragging] = useState(false);
     const [file, setFile] = useState(null);
     const [hash, setHash] = useState('');
     const [hashing, setHashing] = useState(false);
-    const [form, setForm] = useState({ caseId: filterCaseId || '', type: 'Document', description: '' });
+    const [form, setForm] = useState({ type: 'Document', description: '' });
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [uploading, setUploading] = useState(false);
     const [verifying, setVerifying] = useState(null);
+    const [evidence, setEvidence] = useState([]);
+    const [loading, setLoading] = useState(true);
 
     const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+    const loadEvidence = async () => {
+        setLoading(true);
+        try {
+            const list = await getEvidence(caseId);
+            setEvidence(list || []);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (caseId) {
+            loadEvidence();
+            setFile(null);
+            setHash('');
+            setError('');
+            setSuccess('');
+        }
+    }, [caseId]);
 
     const handleFile = async (f) => {
         setFile(f); setHash(''); setSuccess(''); setHashing(true);
@@ -251,26 +256,22 @@ function EvidencePage({ cases, evidence, setEvidence, filterCaseId, setFilterCas
     const submit = async (e) => {
         e.preventDefault();
         if (!file) { setError('NO FILE SELECTED'); return; }
-        if (!form.caseId) { setError('SELECT A CASE'); return; }
-        setError(''); setUploading(true);
-        await new Promise(r => setTimeout(r, 1200));
-        const newEvidence = {
-            id: crypto.randomUUID(),
-            caseId: form.caseId,
-            name: file.name,
-            type: form.type,
-            size: file.size,
-            description: form.description,
-            sha256: hash,
-            uploadedAt: new Date().toISOString(),
-            integrityStatus: 'VERIFIED',
-            uploadedBy: 'Current User',
-        };
-        setEvidence(ev => [newEvidence, ...ev]);
-        setSuccess(`EVIDENCE "${file.name}" UPLOADED — SHA-256 COMPUTED`);
-        setFile(null); setHash('');
-        setForm(f => ({ ...f, description: '' }));
-        setUploading(false);
+        setError(''); setSuccess(''); setUploading(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('case_id', caseId);
+            formData.append('type', form.type);
+            formData.append('description', form.description);
+
+            await uploadEvidence(formData);
+            setSuccess(`EVIDENCE "${file.name}" UPLOADED SUCCESSFULLY`);
+            setFile(null); setHash('');
+            setForm(f => ({ ...f, description: '' }));
+            await loadEvidence();
+        } catch (err) {
+            setError(err.message.toUpperCase());
+        } finally { setUploading(false); }
     };
 
     const recheck = async (id) => {
@@ -283,121 +284,114 @@ function EvidencePage({ cases, evidence, setEvidence, filterCaseId, setFilterCas
         setVerifying(null);
     };
 
-    const filtered = filterCaseId ? evidence.filter(e => e.caseId === filterCaseId) : evidence;
-    const caseName = (id) => cases.find(c => c.public_id === id)?.title || id?.slice(0, 8) + '...';
+    const handleDownload = async (ev) => {
+        try {
+            const blob = await downloadEvidence(ev.public_id);
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', ev.file_name);
+            document.body.appendChild(link);
+            link.click();
+            link.parentNode.removeChild(link);
+        } catch (err) {
+            setError('DOWNLOAD FAILED: ' + err.message.toUpperCase());
+        }
+    };
 
     return (
-        <div className="animate-slide">
-            <div className="page-title">Evidence</div>
-            <div className="page-sub">Upload, manage and verify digital evidence integrity</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <select className="select" style={{ maxWidth: 240 }} value={filterCaseId} onChange={e => setFilterCaseId(e.target.value)}>
-                            <option value="">All Cases</option>
-                            {cases.map(c => <option key={c.public_id} value={c.public_id}>{c.title}</option>)}
-                        </select>
-                        <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink3)' }}>
-                            {filtered.length} ITEM{filtered.length !== 1 ? 'S' : ''}
-                        </span>
-                    </div>
-                    <div className="card" style={{ padding: 0 }}>
-                        {filtered.length === 0
-                            ? <Empty>No evidence yet{filterCaseId ? ' for this case' : ''}. Upload using the form →</Empty>
-                            : filtered.map(ev => (
-                                <div key={ev.id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--rule2)' }}>
-                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                                        <div style={{ width: 36, height: 36, background: 'var(--rule2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', textTransform: 'uppercase' }}>
-                                            {ev.type?.slice(0, 3)}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16, marginTop: 12 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink3)' }}>
+                        {evidence.length} EVIDENCE ITEM{evidence.length !== 1 ? 'S' : ''} FOR THIS CASE
+                    </span>
+                </div>
+                <div className="card" style={{ padding: 0, maxHeight: 400, overflowY: 'auto' }}>
+                    {loading ? (
+                        <Empty>Loading evidence...</Empty>
+                    ) : evidence.length === 0 ? (
+                        <Empty>No evidence uploaded yet. Use the form to upload →</Empty>
+                    ) : (
+                        evidence.map(ev => (
+                            <div key={ev.id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--rule2)' }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                                    <div style={{ width: 36, height: 36, background: 'var(--rule2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', textTransform: 'uppercase' }}>
+                                        {ev.file_name.split('.').pop()?.slice(0, 3) || 'BIN'}
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.file_name}</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{(ev.file_size / 1024).toFixed(1)} KB</span>
+                                            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{new Date(ev.uploaded_at).toLocaleDateString('en-IN')}</span>
+                                            <Badge status={ev.integrityStatus || 'VERIFIED'} />
                                         </div>
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.name}</div>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                                <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{caseName(ev.caseId)}</span>
-                                                <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{(ev.size / 1024).toFixed(1)} KB</span>
-                                                <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{new Date(ev.uploadedAt).toLocaleDateString('en-IN')}</span>
-                                                <Badge status={ev.integrityStatus} />
-                                            </div>
-                                            <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--rule2)' }}>
-                                                <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', marginBottom: 3, letterSpacing: '0.08em' }}>SHA-256</div>
-                                                <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink2)', wordBreak: 'break-all', lineHeight: 1.5 }}>{ev.sha256}</div>
-                                            </div>
-                                            {ev.lastChecked && <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', marginTop: 6 }}>Last verified: {new Date(ev.lastChecked).toLocaleString('en-IN')}</div>}
-                                            {ev.description && <div style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 6 }}>{ev.description}</div>}
+                                        <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--rule2)' }}>
+                                            <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', marginBottom: 3, letterSpacing: '0.08em' }}>SHA-256</div>
+                                            <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink2)', wordBreak: 'break-all', lineHeight: 1.5 }}>{ev.current_hash}</div>
                                         </div>
-                                        <div style={{ flexShrink: 0 }}>
-                                            <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => recheck(ev.id)} disabled={verifying === ev.id}>
-                                                {verifying === ev.id ? 'Checking...' : 'Verify Integrity'}
-                                            </button>
-                                        </div>
+                                        {ev.lastChecked && <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', marginTop: 6 }}>Last verified: {new Date(ev.lastChecked).toLocaleString('en-IN')}</div>}
+                                    </div>
+                                    <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => handleDownload(ev)}>
+                                            Download
+                                        </button>
+                                        <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => recheck(ev.id)} disabled={verifying === ev.id}>
+                                            {verifying === ev.id ? 'Checking...' : 'Verify'}
+                                        </button>
                                     </div>
                                 </div>
-                            ))}
-                    </div>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div className="card">
-                        <SectionTitle>Upload Evidence</SectionTitle>
-                        <ErrorBanner message={error} />
-                        <SuccessBanner message={success} />
-                        <form onSubmit={submit}>
-                            <div
-                                style={{ border: `1px dashed ${dragging ? 'var(--ink2)' : 'var(--rule)'}`, padding: '24px 16px', textAlign: 'center', marginBottom: 14, cursor: 'pointer', background: dragging ? 'rgba(255,255,255,0.02)' : 'transparent', transition: 'all 0.15s ease' }}
-                                onDragOver={e => { e.preventDefault(); setDragging(true); }}
-                                onDragLeave={() => setDragging(false)}
-                                onDrop={handleDrop}
-                                onClick={() => fileRef.current.click()}
-                            >
-                                <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-                                {file ? (
-                                    <div>
-                                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, wordBreak: 'break-all' }}>{file.name}</div>
-                                        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{(file.size / 1024).toFixed(1)} KB</div>
-                                    </div>
-                                ) : (
-                                    <div>
-                                        <div style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 4 }}>Drop file or click to browse</div>
-                                        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>Any file type accepted</div>
-                                    </div>
-                                )}
                             </div>
-                            {(hashing || hash) && (
-                                <div style={{ padding: '8px 10px', background: 'var(--rule2)', marginBottom: 14 }}>
-                                    <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', marginBottom: 4, letterSpacing: '0.08em' }}>SHA-256 HASH</div>
-                                    {hashing
-                                        ? <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink3)' }}>Computing...</div>
-                                        : <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#00c878', wordBreak: 'break-all', lineHeight: 1.5 }}>{hash}</div>}
+                        ))
+                    )}
+                </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="card">
+                    <SectionTitle>Upload Evidence</SectionTitle>
+                    <ErrorBanner message={error} />
+                    <SuccessBanner message={success} />
+                    <form onSubmit={submit}>
+                        <div
+                            style={{ border: `1px dashed ${dragging ? 'var(--ink2)' : 'var(--rule)'}`, padding: '24px 16px', textAlign: 'center', marginBottom: 14, cursor: 'pointer', background: dragging ? 'rgba(255,255,255,0.02)' : 'transparent', transition: 'all 0.15s ease' }}
+                            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+                            onDragLeave={() => setDragging(false)}
+                            onDrop={handleDrop}
+                            onClick={() => fileRef.current.click()}
+                        >
+                            <input ref={fileRef} type="file" style={{ display: 'none' }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
+                            {file ? (
+                                <div>
+                                    <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4, wordBreak: 'break-all' }}>{file.name}</div>
+                                    <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{(file.size / 1024).toFixed(1)} KB</div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <div style={{ fontSize: 12, color: 'var(--ink2)', marginBottom: 4 }}>Drop file or click to browse</div>
+                                    <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>Any file type accepted</div>
                                 </div>
                             )}
-                            <Field label="Case">
-                                <select className="select" value={form.caseId} onChange={set('caseId')}>
-                                    <option value="">Select case...</option>
-                                    {cases.map(c => <option key={c.public_id} value={c.public_id}>{c.title}</option>)}
-                                </select>
-                            </Field>
-                            <Field label="Evidence Type">
-                                <select className="select" value={form.type} onChange={set('type')}>
-                                    {EVIDENCE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                            </Field>
-                            <Field label="Description">
-                                <textarea className="input" value={form.description} onChange={set('description')} placeholder="Optional description..." style={{ height: 64, resize: 'none' }} />
-                            </Field>
-                            <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={uploading || hashing}>
-                                {uploading ? 'Uploading...' : 'Upload Evidence'}
-                            </button>
-                        </form>
-                    </div>
-                    <div className="card">
-                        <SectionTitle>Integrity Verification</SectionTitle>
-                        <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', lineHeight: 2, letterSpacing: '0.04em' }}>
-                            <div>▸ SHA-256 computed client-side on upload</div>
-                            <div>▸ Hash stored alongside evidence metadata</div>
-                            <div>▸ Verify button re-checks hash against record</div>
-                            <div>▸ TAMPERED status if hash mismatch detected</div>
-                            <div style={{ marginTop: 8, color: 'var(--ink3)', opacity: 0.6 }}>Full cryptographic verification pending backend implementation.</div>
                         </div>
-                    </div>
+                        {(hashing || hash) && (
+                            <div style={{ padding: '8px 10px', background: 'var(--rule2)', marginBottom: 14 }}>
+                                <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', marginBottom: 4, letterSpacing: '0.08em' }}>SHA-256 HASH</div>
+                                {hashing
+                                    ? <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink3)' }}>Computing...</div>
+                                    : <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#00c878', wordBreak: 'break-all', lineHeight: 1.5 }}>{hash}</div>}
+                            </div>
+                        )}
+                        <Field label="Evidence Type">
+                            <select className="select" value={form.type} onChange={set('type')}>
+                                {EVIDENCE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                            </select>
+                        </Field>
+                        <Field label="Description">
+                            <textarea className="input" value={form.description} onChange={set('description')} placeholder="Optional description..." style={{ height: 64, resize: 'none' }} />
+                        </Field>
+                        <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={uploading || hashing}>
+                            {uploading ? 'Uploading...' : 'Upload Evidence'}
+                        </button>
+                    </form>
                 </div>
             </div>
         </div>
@@ -742,6 +736,422 @@ function Members({ onRefresh }) {
     );
 }
 
+// ── Departments Screen ─────────────────────────────────────────────────────────
+function Departments() {
+    const [departments, setDepartments] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [form, setForm] = useState({ name: '' });
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [creating, setCreating] = useState(false);
+
+    // Selected department state for cases and case creation
+    const [selectedDept, setSelectedDept] = useState(null);
+    const [deptCases, setDeptCases] = useState([]);
+    const [casesLoading, setCasesLoading] = useState(false);
+
+    // Case creation form under selected department
+    const [caseForm, setCaseForm] = useState({ title: '', description: '', priority: 'low' });
+    const [caseError, setCaseError] = useState('');
+    const [caseSuccess, setCaseSuccess] = useState('');
+    const [caseCreating, setCaseCreating] = useState(false);
+
+    const loadDepartments = async () => {
+        setLoading(true);
+        try {
+            const list = await getOrgDepartments();
+            setDepartments(list || []);
+        } catch (err) {
+            setError('FAILED TO LOAD DEPARTMENTS');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadDepartments();
+    }, []);
+
+    const loadDeptCases = async (dept) => {
+        setCasesLoading(true);
+        try {
+            const list = await getCases(dept.public_id);
+            setDeptCases(list || []);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setCasesLoading(false);
+        }
+    };
+
+    const handleSelectDept = (dept) => {
+        if (selectedDept?.public_id === dept.public_id) {
+            setSelectedDept(null);
+            setDeptCases([]);
+        } else {
+            setSelectedDept(dept);
+            setCaseError('');
+            setCaseSuccess('');
+            loadDeptCases(dept);
+        }
+    };
+
+    const handleCreateDept = async (e) => {
+        e.preventDefault();
+        if (!form.name.trim()) { setError('NAME IS REQUIRED'); return; }
+        setError(''); setSuccess(''); setCreating(true);
+        try {
+            await createDepartment({ name: form.name });
+            setSuccess(`DEPARTMENT "${form.name.toUpperCase()}" CREATED`);
+            setForm({ name: '' });
+            await loadDepartments();
+        } catch (err) {
+            setError(err.message.toUpperCase());
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    const handleDeleteDept = async (deptId, deptName) => {
+        if (!window.confirm(`Are you sure you want to delete department "${deptName}"?`)) return;
+        try {
+            await deleteDepartment(deptId);
+            if (selectedDept?.public_id === deptId) {
+                setSelectedDept(null);
+                setDeptCases([]);
+            }
+            await loadDepartments();
+        } catch (err) {
+            console.log(err);
+            setError("FAILED TO DELETE DEPARTMENT");
+        }
+    };
+
+    const handleCreateCase = async (e) => {
+        e.preventDefault();
+        if (!caseForm.title.trim()) { setCaseError('TITLE IS REQUIRED'); return; }
+        setCaseError(''); setCaseSuccess(''); setCaseCreating(true);
+        try {
+            await createCase({
+                title: caseForm.title,
+                description: caseForm.description,
+                priority: caseForm.priority,
+                dept_id: selectedDept.public_id
+            });
+            setCaseSuccess('CASE CREATED UNDER ' + selectedDept.name.toUpperCase());
+            setCaseForm({ title: '', description: '', priority: 'low' });
+            await loadDeptCases(selectedDept);
+        } catch (err) {
+            setCaseError(err.message.toUpperCase());
+        } finally {
+            setCaseCreating(false);
+        }
+    };
+
+    return (
+        <div className="animate-slide">
+            <div className="page-title">Departments</div>
+            <div className="page-sub">Manage organization departments and their cases</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                    <div className="card">
+                        <SectionTitle>All Departments ({departments.length})</SectionTitle>
+                        {loading ? (
+                            <Empty>Loading departments...</Empty>
+                        ) : departments.length === 0 ? (
+                            <Empty>No departments found. Create your first department →</Empty>
+                        ) : (
+                            departments.map(d => (
+                                <div key={d.public_id} style={{ borderBottom: '1px solid var(--rule2)', paddingBottom: 8, marginBottom: 8 }}>
+                                    <Row onClick={() => handleSelectDept(d)}>
+                                        <div style={{ flex: 1, fontWeight: 500, fontSize: 13 }}>{d.name}</div>
+                                        <button
+                                            className="btn"
+                                            style={{ fontSize: 9, padding: '3px 8px', marginRight: 8, background: 'rgba(255, 68, 68, 0.1)', color: '#ff4444' }}
+                                            onClick={(e) => { e.stopPropagation(); handleDeleteDept(d.public_id, d.name); }}
+                                        >
+                                            Delete
+                                        </button>
+                                        <span style={{ color: 'var(--ink3)', fontSize: 12 }}>{selectedDept?.public_id === d.public_id ? '▾' : '▸'}</span>
+                                    </Row>
+                                    {selectedDept?.public_id === d.public_id && (
+                                        <div style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.01)', marginTop: 8 }}>
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16 }}>
+                                                <div>
+                                                    <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', marginBottom: 8, letterSpacing: '0.08em' }}>DEPARTMENT CASES ({deptCases.length})</div>
+                                                    {casesLoading ? (
+                                                        <Empty>Loading cases...</Empty>
+                                                    ) : deptCases.length === 0 ? (
+                                                        <Empty>No cases created for this department yet.</Empty>
+                                                    ) : (
+                                                        deptCases.map(c => (
+                                                            <div key={c.public_id} style={{ padding: '8px 0', borderBottom: '1px solid var(--rule2)' }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                                    <span style={{ fontSize: 10, color: 'var(--ink3)', fontFamily: 'var(--mono)' }}>{c.public_id.slice(0, 8)}...</span>
+                                                                    <span style={{ flex: 1, fontSize: 12, fontWeight: 500 }}>{c.title}</span>
+                                                                    <Badge status={c.status} />
+                                                                </div>
+                                                            </div>
+                                                        ))
+                                                    )}
+                                                </div>
+                                                <div style={{ borderLeft: '1px solid var(--rule2)', paddingLeft: 16 }}>
+                                                    <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', marginBottom: 8, letterSpacing: '0.08em' }}>CREATE CASE IN DEPARTMENT</div>
+                                                    <ErrorBanner message={caseError} />
+                                                    <SuccessBanner message={caseSuccess} />
+                                                    <form onSubmit={handleCreateCase}>
+                                                        <Field label="Title">
+                                                            <input className="input" style={{ fontSize: 11 }} value={caseForm.title} onChange={e => setCaseForm(cf => ({ ...cf, title: e.target.value }))} placeholder="Case title" />
+                                                        </Field>
+                                                        <Field label="Description">
+                                                            <textarea className="input" style={{ fontSize: 11, height: 50, resize: 'none' }} value={caseForm.description} onChange={e => setCaseForm(cf => ({ ...cf, description: e.target.value }))} placeholder="Optional details..." />
+                                                        </Field>
+                                                        <Field label="Priority">
+                                                            <select className="select" style={{ fontSize: 11 }} value={caseForm.priority} onChange={e => setCaseForm(cf => ({ ...cf, priority: e.target.value }))}>
+                                                                <option value="low">Low</option>
+                                                                <option value="medium">Medium</option>
+                                                                <option value="high">High</option>
+                                                            </select>
+                                                        </Field>
+                                                        <button type="submit" className="btn btn-primary" style={{ width: '100%', fontSize: 11, padding: '6px' }} disabled={caseCreating}>
+                                                            {caseCreating ? 'Creating...' : 'Create Case'}
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+                <div className="card" style={{ alignSelf: 'start' }}>
+                    <SectionTitle>New Department</SectionTitle>
+                    <ErrorBanner message={error} />
+                    <SuccessBanner message={success} />
+                    <form onSubmit={handleCreateDept}>
+                        <Field label="Department Name">
+                            <input className="input" value={form.name} onChange={e => { setForm({ name: e.target.value }); setError(''); }} placeholder="e.g. Homicide, Cybercrime" />
+                        </Field>
+                        <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={creating}>
+                            {creating ? 'Creating...' : 'Create Department'}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ── Roles Screen ───────────────────────────────────────────────────────────────
+function Roles({ cases }) {
+    const [roles, setRoles] = useState([]);
+    const [rolesLoading, setRolesLoading] = useState(true);
+    const [activeTab, setActiveTab] = useState('ORG'); // ORG, DEPARTMENT, CASE
+    const [allPermissions, setAllPermissions] = useState([]);
+    const [departments, setDepartments] = useState([]);
+    const [selectedScopeEntity, setSelectedScopeEntity] = useState('');
+
+    // Creation Form State
+    const [form, setForm] = useState({ name: '', description: '' });
+    const [selectedPermissions, setSelectedPermissions] = useState([]);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
+    const [creating, setCreating] = useState(false);
+
+    const loadRoles = async () => {
+        setRolesLoading(true);
+        try {
+            const list = await getOrgRoles(activeTab);
+            setRoles(list || []);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setRolesLoading(false);
+        }
+    };
+
+    const loadPermissions = async () => {
+        try {
+            const list = await getAllPermissions();
+            setAllPermissions(list || []);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const loadDepartments = async () => {
+        try {
+            const list = await getOrgDepartments();
+            setDepartments(list || []);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    useEffect(() => {
+        loadRoles();
+        setSelectedScopeEntity('');
+    }, [activeTab]);
+
+    useEffect(() => {
+        loadPermissions();
+        loadDepartments();
+    }, []);
+
+    const togglePermission = (name) => {
+        setSelectedPermissions(prev =>
+            prev.includes(name) ? prev.filter(p => p !== name) : [...prev, name]
+        );
+    };
+
+    const handleCreateRole = async (e) => {
+        e.preventDefault();
+        if (!form.name.trim()) { setError('ROLE NAME IS REQUIRED'); return; }
+        if (selectedPermissions.length === 0) { setError('SELECT AT LEAST ONE PERMISSION'); return; }
+        if (activeTab !== 'ORG' && !selectedScopeEntity) {
+            setError(`PLEASE SELECT A TARGET ${activeTab} CONTEXT`);
+            return;
+        }
+
+        setError(''); setSuccess(''); setCreating(true);
+        try {
+            await createRole({
+                name: form.name,
+                description: form.description,
+                permissions: selectedPermissions,
+                scopeType: activeTab,
+                scopeId: selectedScopeEntity
+            });
+            setSuccess(`ROLE "${form.name.toUpperCase()}" CREATED`);
+            setForm({ name: '', description: '' });
+            setSelectedPermissions([]);
+            setSelectedScopeEntity('');
+            await loadRoles();
+        } catch (err) {
+            setError(err.message.toUpperCase());
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    const handleDeleteRole = async (name, scopeType, scopeId) => {
+        if (!window.confirm(`Are you sure you want to delete role "${name}"?`)) return;
+        try {
+            await deleteRole(name, scopeType, scopeId);
+            await loadRoles();
+        } catch (err) {
+            console.error(err);
+            setError('FAILED TO DELETE ROLE');
+        }
+    };
+
+    return (
+        <div className="animate-slide">
+            <div className="page-title">Role Management</div>
+            <div className="page-sub">Configure organization, department and case scopes roles and attach permissions</div>
+
+            {/* Tab Navigation */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16, borderBottom: '1px solid var(--rule2)', paddingBottom: 8 }}>
+                {['ORG', 'DEPARTMENT', 'CASE'].map(tab => (
+                    <button
+                        key={tab}
+                        className={`btn ${activeTab === tab ? 'btn-primary' : ''}`}
+                        style={{ fontSize: 10, padding: '6px 16px', textTransform: 'uppercase' }}
+                        onClick={() => { setActiveTab(tab); setError(''); setSuccess(''); }}
+                    >
+                        {tab} Roles
+                    </button>
+                ))}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16 }}>
+                <div className="card">
+                    <SectionTitle>{activeTab} Roles List ({roles.length})</SectionTitle>
+                    {rolesLoading ? (
+                        <Empty>Loading roles...</Empty>
+                    ) : roles.length === 0 ? (
+                        <Empty>No {activeTab.toLowerCase()} roles found. Create one →</Empty>
+                    ) : (
+                        roles.map(r => (
+                            <div key={r.public_id} style={{ padding: '12px 0', borderBottom: '1px solid var(--rule2)' }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                            {r.name}
+                                            <span style={{ fontSize: 9, background: 'var(--rule2)', padding: '2px 6px', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>{r.scope_name || ""}</span>
+                                        </div>
+                                        {r.description && <div style={{ fontSize: 11, color: 'var(--ink3)', marginTop: 4 }}>{r.description}</div>}
+                                    </div>
+                                    {r.name !== "ORG_ADMIN" && <button
+                                        className="btn"
+                                        style={{ fontSize: 9, padding: '4px 10px', background: 'rgba(255, 68, 68, 0.1)', color: '#ff4444' }}
+                                        onClick={() => handleDeleteRole(r.name, r.scope_type, r.scope_id)}
+                                    >
+                                        Delete
+                                    </button>
+                                    }
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                <div className="card">
+                    <SectionTitle>New {activeTab} Role</SectionTitle>
+                    <ErrorBanner message={error} />
+                    <SuccessBanner message={success} />
+                    <form onSubmit={handleCreateRole}>
+                        <Field label="Role Name">
+                            <input className="input" value={form.name} onChange={e => { setForm(f => ({ ...f, name: e.target.value })); setError(''); }} placeholder="e.g. DEPT_HEAD, INVESTIGATOR" />
+                        </Field>
+                        <Field label="Description">
+                            <textarea className="input" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Explain role responsibilities..." style={{ height: 60, resize: 'none' }} />
+                        </Field>
+                        {activeTab === 'DEPARTMENT' && (
+                            <Field label="Select Department">
+                                <select className="select" value={selectedScopeEntity} onChange={e => { setSelectedScopeEntity(e.target.value); setError(''); }}>
+                                    <option value="">Choose department...</option>
+                                    {departments.map(d => <option key={d.public_id} value={d.public_id}>{d.name}</option>)}
+                                </select>
+                            </Field>
+                        )}
+                        {activeTab === 'CASE' && (
+                            <Field label="Select Case">
+                                <select className="select" value={selectedScopeEntity} onChange={e => { setSelectedScopeEntity(e.target.value); setError(''); }}>
+                                    <option value="">Choose case...</option>
+                                    {cases.map(c => <option key={c.public_id} value={c.public_id}>{c.title}</option>)}
+                                </select>
+                            </Field>
+                        )}
+                        <Field label="Select Permissions">
+                            <div style={{ maxHeight: 180, overflowY: 'auto', border: '1px solid var(--rule)', padding: 8, background: 'rgba(0,0,0,0.1)' }}>
+                                {allPermissions.length === 0 ? (
+                                    <div style={{ fontSize: 10, color: 'var(--ink3)', textAlign: 'center' }}>No permissions loaded</div>
+                                ) : (
+                                    allPermissions.map(p => (
+                                        <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', cursor: 'pointer' }} onClick={() => togglePermission(p.name)}>
+                                            <input type="checkbox" checked={selectedPermissions.includes(p.name)} onChange={() => { }} />
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: 11, fontWeight: 500, fontFamily: 'var(--mono)' }}>{p.name}</span>
+                                                {p.description && <span style={{ fontSize: 9, color: 'var(--ink3)' }}>{p.description}</span>}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </Field>
+                        <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: 10 }} disabled={creating}>
+                            {creating ? 'Creating...' : 'Create Role'}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 // ── Audit ──────────────────────────────────────────────────────────────────────
 
 function Audit() {
@@ -763,25 +1173,29 @@ export function AdminDashboard() {
     const navigate = useNavigate();
     const [cases, setCases] = useState([]);
     const [evidence, setEvidence] = useState([]);
-    const [filterCaseId, setFilterCaseId] = useState('');
 
     const currentPage = page || 'overview';
 
     const refresh = async () => {
-        try { setCases(await getCases()); } catch { }
+        try {
+            const list = await getCases();
+            setCases(list || []);
+
+            // Fetch evidence for each case in parallel to sum up
+            const evPromises = (list || []).map(c => getEvidence(c.public_id).catch(() => []));
+            const evResults = await Promise.all(evPromises);
+            const allEv = evResults.flat();
+            setEvidence(allEv);
+        } catch { }
     };
 
     useEffect(() => { refresh(); }, []);
 
-    const navigateToEvidence = (caseId) => {
-        setFilterCaseId(caseId);
-        navigate('/admin/evidence');
-    };
-
     const pages = {
         overview: <Overview cases={cases} evidence={evidence} />,
-        cases: <Cases cases={cases} onRefresh={refresh} onNavigateToEvidence={navigateToEvidence} />,
-        evidence: <EvidencePage cases={cases} evidence={evidence} setEvidence={setEvidence} filterCaseId={filterCaseId} setFilterCaseId={setFilterCaseId} />,
+        cases: <Cases cases={cases} onRefresh={refresh} />,
+        departments: <Departments />,
+        roles: <Roles cases={cases} />,
         members: <Members onRefresh={refresh} />,
         audit: <Audit />,
     };

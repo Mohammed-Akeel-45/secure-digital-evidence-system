@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"strings"
 
-	"evidence-service/internal/middleware"
 	"evidence-service/internal/models"
 	"evidence-service/internal/services"
 	"evidence-service/internal/store"
@@ -27,6 +26,14 @@ type EvidenceHandler struct {
 
 // CreateEvidence handles multipart file uploads to S3
 func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userPublicID := claims.Subject
+
 	// Parse multipart form (10MB max)
 	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
@@ -53,15 +60,12 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 	token = strings.TrimPrefix(token, "Bearer ")
 
 	// Validate case exists via case service
-	_, err = services.ValidateCase(casePublicID, token)
+	caseResp, err := services.ValidateCase(casePublicID, token)
 	if err != nil {
 		log.Printf("Case validation failed: %v", err)
 		http.Error(w, `{"error":"case not found or invalid"}`, http.StatusNotFound)
 		return
 	}
-
-	// Get user public_id from JWT context (UUID)
-	userPublicID := r.Context().Value(middleware.UserIDKey).(string)
 
 	// Check user has access to this case
 	hasAccess, err := services.CheckUserCaseAccess(casePublicID, userPublicID, token)
@@ -100,7 +104,7 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 		(case_id, file_name, file_size, storage_path, current_hash, uploaded_by)
 		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`,
-		casePublicID,
+		caseResp.ID,
 		fileHeader.Filename,
 		fileHeader.Size,
 		s3Key,
@@ -153,15 +157,25 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 
 // GetEvidence handles downloading evidence from S3 with metadata headers
 func (h *EvidenceHandler) GetEvidence(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userPublicID := claims.Subject
+
 	vars := mux.Vars(r)
 	evidencePublicID := vars["id"]
 
 	// Look up evidence record
 	var evidence models.Evidence
 	err := h.Store.DB.Get(&evidence,
-		`SELECT id, public_id, case_id, file_name, file_size, storage_path,
-		        current_hash, uploaded_by, uploaded_at
-		 FROM evidence WHERE public_id = $1`,
+		`SELECT e.id, e.public_id, c.public_id AS case_id, e.file_name, e.file_size, e.storage_path,
+		        e.current_hash, e.uploaded_by, e.uploaded_at
+		 FROM evidence e
+		 JOIN case_schema.cases c ON c.id = e.case_id
+		 WHERE e.public_id = $1`,
 		evidencePublicID,
 	)
 	if err != nil {
@@ -169,8 +183,6 @@ func (h *EvidenceHandler) GetEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user from JWT
-	userPublicID := r.Context().Value(middleware.UserIDKey).(string)
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
 	// Check access
@@ -199,21 +211,29 @@ func (h *EvidenceHandler) GetEvidence(w http.ResponseWriter, r *http.Request) {
 // StreamEvidenceFile implements GET /evidence/{id}/file
 // Returns raw binary stream with no additional headers or buffering
 func (h *EvidenceHandler) StreamEvidenceFile(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+
 	vars := mux.Vars(r)
 	evidencePublicID := vars["id"]
 
 	// 1. Look up storage path
 	var evidence models.Evidence
 	err := h.Store.DB.Get(&evidence,
-		`SELECT id, case_id, storage_path FROM evidence WHERE public_id = $1`,
+		`SELECT e.id, c.public_id AS case_id, e.storage_path
+		 FROM evidence e
+		 JOIN case_schema.cases c ON c.id = e.case_id
+		 WHERE e.public_id = $1`,
 		evidencePublicID,
 	)
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
 		return
 	}
-
-	claims := r.Context().Value(middleware.UserIDKey).(models.Claims)
 
 	// 2. Security Check only for user requests.
 	if claims.TokenType == "user" {
@@ -245,6 +265,13 @@ func (h *EvidenceHandler) StreamEvidenceFile(w http.ResponseWriter, r *http.Requ
 
 // ListEvidence returns all evidence for a given case
 func (h *EvidenceHandler) ListEvidence(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userPublicID := claims.Subject
 
 	casePublicID := r.URL.Query().Get("case_id")
 	if casePublicID == "" {
@@ -252,14 +279,19 @@ func (h *EvidenceHandler) ListEvidence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get user from JWT
-	userPublicID := r.Context().Value(middleware.UserIDKey).(string)
-
 	// Extract token for inter-service calls
 	token := r.Header.Get("Authorization")
 	token = strings.TrimPrefix(token, "Bearer ")
 
-	// Validate case and check access control
+	// Validate case exists via case service
+	caseResp, err := services.ValidateCase(casePublicID, token)
+	if err != nil {
+		log.Printf("Case validation failed: %v", err)
+		http.Error(w, `{"error":"case not found or invalid"}`, http.StatusNotFound)
+		return
+	}
+
+	// Check access control
 	hasAccess, err := services.CheckUserCaseAccess(casePublicID, userPublicID, token)
 	if err != nil || !hasAccess {
 		http.Error(w, `{"error":"access denied: user not assigned to this case"}`, http.StatusForbidden)
@@ -269,12 +301,13 @@ func (h *EvidenceHandler) ListEvidence(w http.ResponseWriter, r *http.Request) {
 	// Fetch evidence records
 	var evidenceList []models.Evidence
 	err = h.Store.DB.Select(&evidenceList,
-		`SELECT id, public_id, case_id, file_name, file_size,
-		        storage_path, current_hash, uploaded_by, uploaded_at
-		 FROM evidence
-		 WHERE case_id = $1
-		 ORDER BY uploaded_at DESC`,
-		casePublicID,
+		`SELECT e.id, e.public_id, c.public_id AS case_id, e.file_name, e.file_size,
+		        e.storage_path, e.current_hash, e.uploaded_by, e.uploaded_at
+		 FROM evidence e
+		 JOIN case_schema.cases c ON c.id = e.case_id
+		 WHERE e.case_id = $1
+		 ORDER BY e.uploaded_at DESC`,
+		caseResp.ID,
 	)
 	if err != nil {
 		log.Printf("DB select error: %v", err)

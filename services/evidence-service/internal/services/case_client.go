@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 )
 
 type CaseResponse struct {
@@ -18,11 +19,19 @@ type CaseUserResponse struct {
 	Email    string `json:"email"`
 }
 
+func getCaseServiceURL() string {
+	url := os.Getenv("CASE_SERVICE_URL")
+	if url == "" {
+		url = "http://case-service:3003"
+	}
+	return url
+}
+
 // ValidateCase calls the case service to verify the case exists.
-// Returns the case internal ID and error.
+// Returns the case response data and error.
 func ValidateCase(casePublicID string, token string) (*CaseResponse, error) {
 
-	url := fmt.Sprintf("http://localhost:4000/cases/%s", casePublicID)
+	url := fmt.Sprintf("%s/cases/%s", getCaseServiceURL(), casePublicID)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -54,7 +63,7 @@ func ValidateCase(casePublicID string, token string) (*CaseResponse, error) {
 // It calls the case service's case_users endpoint.
 func CheckUserCaseAccess(casePublicID string, userPublicID string, token string) (bool, error) {
 
-	url := fmt.Sprintf("http://localhost:4000/cases/%s/users", casePublicID)
+	url := fmt.Sprintf("%s/cases/%s/users", getCaseServiceURL(), casePublicID)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {

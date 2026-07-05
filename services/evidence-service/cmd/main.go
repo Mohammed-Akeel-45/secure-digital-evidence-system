@@ -80,8 +80,8 @@ func main() {
 		middleware.JWTMiddleware(http.HandlerFunc(h.GetEvidence)),
 	).Methods("GET")
 
-	log.Println("Evidence Service running on :3003 (with S3 Integration)")
-	http.ListenAndServe(":3003", router)
+	log.Println("Evidence Service running on :3004 (with S3 Integration)")
+	http.ListenAndServe(":3004", router)
 }
 
 // Run the latest db migrations.

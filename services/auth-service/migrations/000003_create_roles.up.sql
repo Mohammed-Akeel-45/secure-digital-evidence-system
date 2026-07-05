@@ -1,8 +1,10 @@
-CREATE TABLE IF NOT EXISTS
-  auth_schema.roles (
-    id bigint NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    name character varying(50) NOT NULL,
-    description text NOT NULL,
-    org_id bigint NOT NULL REFERENCES auth_schema.organizations (id) ON DELETE CASCADE
-  );
-
+CREATE TABLE IF NOT EXISTS auth_schema.roles (
+    id BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    public_id UUID NOT NULL DEFAULT gen_random_uuid(),
+    name CHARACTER VARYING(50) NOT NULL,
+    description TEXT NOT NULL,
+    org_id BIGINT NOT NULL REFERENCES auth_schema.organizations(id)
+ON DELETE CASCADE,
+    scope_type CHARACTER VARYING(20) NOT NULL DEFAULT 'ORG',
+    scope_id BIGINT NOT NULL
+);

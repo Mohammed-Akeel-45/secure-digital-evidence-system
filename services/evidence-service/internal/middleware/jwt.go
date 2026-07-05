@@ -14,10 +14,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-type contextKey string
-
-const UserIDKey contextKey = "user_id"
-
 var publicKey *rsa.PublicKey
 
 func InitJWT() {

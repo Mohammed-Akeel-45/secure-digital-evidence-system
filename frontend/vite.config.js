@@ -11,8 +11,12 @@ export default defineConfig({
         target: "http://sdes_auth:3001",
         changeOrigin: true,
       },
-      "/cases": {
+      "/api/v1/cases": {
         target: "http://sdes_case:3003",
+        changeOrigin: true,
+      },
+      "/api/v1/evidence": {
+        target: "http://sdes_evidence:3004",
         changeOrigin: true,
       },
     },
