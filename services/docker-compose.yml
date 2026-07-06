@@ -9,7 +9,7 @@ services:
     volumes:
       - ./auth-service/:/app
     environment:
-      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable"
+      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable search_path=auth_schema"
     networks:
       - sdes_network
   audit-service-go:
@@ -22,7 +22,7 @@ services:
     volumes:
       - ./audit-service/:/app
     environment:
-      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable"
+      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable search_path=integrity_schema"
     networks:
       - sdes_network
   case-service:
@@ -47,7 +47,7 @@ services:
     volumes:
       - ./evidence-service/:/app
     environment:
-      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable"
+      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable search_path=evidence_schema"
     networks:
       - sdes_network
   db:

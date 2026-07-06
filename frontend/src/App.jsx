@@ -33,10 +33,16 @@ export default function App() {
                 />
 
                 {/* Admin routes */}
+                <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
                 <Route path="/admin/:page" element={
                     <ProtectedAdmin><AdminDashboard /></ProtectedAdmin>
                 } />
-                <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
+                <Route path="/admin/:page/:id" element={
+                    <ProtectedAdmin><AdminDashboard /></ProtectedAdmin>
+                } />
+                <Route path="/admin/:page/:param1/:param2/:param3" element={
+                    <ProtectedAdmin><AdminDashboard /></ProtectedAdmin>
+                } />
 
                 {/* User routes */}
                 <Route path="/dashboard/:page" element={

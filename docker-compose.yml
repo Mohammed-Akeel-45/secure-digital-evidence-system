@@ -1,0 +1,90 @@
+services:
+  frontend:
+    build: ./frontend/
+    container_name: sdes_frontend
+    restart: unless-stopped
+    ports:
+      - 5173:5173
+    depends_on:
+      - auth-service-go
+    volumes:
+      - ./frontend/:/app
+      - /app/node_modules
+    networks:
+      - sdes_network
+  auth-service-go:
+    build: ./services/auth-service/
+    container_name: sdes_auth
+    restart: unless-stopped
+    ports:
+      - 3001:3001
+    depends_on:
+      - db
+    volumes:
+      - ./services/auth-service/:/app
+    environment:
+      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable search_path=auth_schema"
+    networks:
+      - sdes_network
+  audit-service-go:
+    build: ./services/audit-service/
+    container_name: sdes_audit
+    restart: unless-stopped
+    ports:
+      - 3002:3002
+    depends_on:
+      - db
+    volumes:
+      - ./services/audit-service/:/app
+    environment:
+      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable search_path=integrity_schema"
+    networks:
+      - sdes_network
+  case-service:
+    build: ./services/case-service/
+    container_name: sdes_case
+    restart: unless-stopped
+    ports:
+      - "3003:3003"
+    depends_on:
+      - db
+    volumes:
+      - ./services/case-service/:/app
+      - /app/node_modules
+    networks:
+      - sdes_network
+  evidence-service-go:
+    build: ./services/evidence-service/
+    container_name: sdes_evidence
+    restart: unless-stopped
+    ports:
+      - 3004:3004
+    depends_on:
+      - db
+    volumes:
+      - ./services/evidence-service/:/app
+    environment:
+      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable search_path=evidence_schema"
+    networks:
+      - sdes_network
+  db:
+    image: postgres:18.2-bookworm
+    container_name: sdes_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: evidence_user
+      POSTGRES_PASSWORD: evidence_pass
+      POSTGRES_DB: evidence_db
+    volumes:
+      - pgdata:/var/lib/postgresql
+    ports:
+      - 5432:5432
+    networks:
+      - sdes_network
+
+volumes:
+  pgdata:
+    external: true
+networks:
+  sdes_network:
+    driver: bridge
