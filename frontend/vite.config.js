@@ -4,14 +4,19 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: "0.0.0.0",
     port: 5173,
     proxy: {
       "/api/v1/auth": {
-        target: "http://localhost:3001",
+        target: "http://sdes_auth:3001",
         changeOrigin: true,
       },
-      "/cases": {
-        target: "http://localhost:3003",
+      "/api/v1/cases": {
+        target: "http://sdes_case:3003",
+        changeOrigin: true,
+      },
+      "/api/v1/evidence": {
+        target: "http://sdes_evidence:3004",
         changeOrigin: true,
       },
     },

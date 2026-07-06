@@ -1,6 +1,6 @@
 // Relative URLs — proxied via vite.config.js
 const AUTH_BASE = "/api/v1/auth";
-const CASE_BASE = ""; // /cases goes through proxy to localhost:4000
+const CASE_BASE = "/api/v1/cases";
 
 async function request(url, options = {}) {
   const token = localStorage.getItem("sdes_token");
@@ -53,15 +53,29 @@ export async function registerAdmin({ name, email, password, orgName }) {
   });
 }
 
-export async function createMember({ name, email, password, role }) {
+export async function createMember({ name, email, password, org_role, department_id, department_role }) {
   return request(`${AUTH_BASE}/admin/create-user`, {
     method: "POST",
-    body: JSON.stringify({ name, email, password, role }),
+    body: JSON.stringify({
+      name,
+      email,
+      password,
+      org_role,
+      department_id,
+      department_role
+    }),
   });
 }
 
-export async function getCases() {
-  return request(`${CASE_BASE}/cases`);
+export async function getCases(departmentId, userId) {
+  let url = `${CASE_BASE}`;
+  const params = [];
+  if (departmentId) params.push(`department_id=${departmentId}`);
+  if (userId) params.push(`user_id=${userId}`);
+  if (params.length > 0) {
+    url += `?${params.join("&")}`;
+  }
+  return request(url);
 }
 
 export async function getOrgUsers() {
@@ -75,6 +89,89 @@ export async function createDepartment({ name }) {
   });
 }
 
+export async function createRole({
+  name,
+  description,
+  permissions,
+  scopeType,
+  scopeId,
+}) {
+  return request(`${AUTH_BASE}/create-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      description,
+      permissions,
+      scope: { type: scopeType, public_id: scopeId },
+    }),
+  });
+}
+
+export async function deleteRole(roleName, scopeType, scopeId) {
+  return request(`${AUTH_BASE}/delete-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      name: roleName,
+      scope: { type: scopeType, public_id: scopeId },
+    }),
+  });
+}
+
+export async function getAllPermissions() {
+  return request(`${AUTH_BASE}/get-all-permissions`);
+}
+
+export async function getRolePermissions(roleName, scopeType, scopeId) {
+  const url =
+    scopeType && scopeId
+      ? `${AUTH_BASE}/get-role-permissions/${roleName}?scope_type=${scopeType}&scope_id=${scopeId}`
+      : `${AUTH_BASE}/get-role-permissions/${roleName}`;
+  return request(url);
+}
+
+export async function attachPermissionsToRole({
+  roleName,
+  scopeType,
+  scopeId,
+  permissions,
+}) {
+  return request(`${AUTH_BASE}/attach-permissions-to-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      role_name: roleName,
+      scope: { type: scopeType, public_id: scopeId },
+      permission_names: permissions,
+    }),
+  });
+}
+
+export async function detachPermissionsFromRole({
+  roleName,
+  scopeType,
+  scopeId,
+  permissions,
+}) {
+  return request(`${AUTH_BASE}/detach-permissions-from-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      role_name: roleName,
+      scope: { type: scopeType, public_id: scopeId },
+      permission_names: permissions,
+    }),
+  });
+}
+
+export async function getOrgRoles(scopeType) {
+  const url = scopeType
+    ? `${AUTH_BASE}/get-org-roles?scope_type=${scopeType}`
+    : `${AUTH_BASE}/get-org-roles`;
+  return request(url);
+}
+
+export async function getUserRoles(userId) {
+  return request(`${AUTH_BASE}/get-user-roles/${userId}`);
+}
+
 export async function getOrgDepartments() {
   return request(`${AUTH_BASE}/admin/get-org-departments`);
 }
@@ -86,31 +183,116 @@ export async function updateUserDepartment({ userId, departmentId }) {
   });
 }
 
-export async function deleteDepartment({ departmentId }) {
+export async function deleteDepartment(departmentId) {
   return request(`${AUTH_BASE}/admin/delete-department`, {
-    method: "POST",
+    method: "DELETE",
     body: JSON.stringify({ department_id: departmentId }),
   });
 }
 
-export async function createCase({ title, description, priority }) {
-  return request(`${CASE_BASE}/cases`, {
+export async function createCase({ title, description, priority, dept_id }) {
+  return request(`${CASE_BASE}`, {
     method: "POST",
-    body: JSON.stringify({ title, description, priority }),
+    body: JSON.stringify({ title, description, priority, dept_id }),
   });
 }
 
 export async function getCaseById(id) {
-  return request(`${CASE_BASE}/cases/${id}`);
+  return request(`${CASE_BASE}/${id}`);
 }
 
-export async function assignUserToCase({ caseId, userId, role }) {
-  return request(`${CASE_BASE}/cases/${caseId}/users`, {
+export async function assignUserToCase({ caseId, userId }) {
+  return request(`${CASE_BASE}/${caseId}/users`, {
     method: "POST",
-    body: JSON.stringify({ user_id: userId, role }),
+    body: JSON.stringify({ user_id: userId }),
   });
 }
 
 export async function getCaseUsers(caseId) {
-  return request(`${CASE_BASE}/cases/${caseId}/users`);
+  return request(`${CASE_BASE}/${caseId}/users`);
+}
+
+export async function getEvidence(caseId) {
+  return request(`/evidence?case_id=${caseId}`);
+}
+
+export async function uploadEvidence(formData) {
+  const token = localStorage.getItem("sdes_token");
+  const res = await fetch(`/evidence`, {
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: formData,
+  });
+  const text = await res.text();
+  let data = {};
+  try {
+    data = JSON.parse(text);
+  } catch {}
+  if (!res.ok) {
+    throw new Error(data.error || text || "Upload failed");
+  }
+  return data;
+}
+
+export async function downloadEvidence(evidenceId) {
+  const token = localStorage.getItem("sdes_token");
+  const res = await fetch(`/evidence/${evidenceId}`, {
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    throw new Error("Download failed");
+  }
+  return res.blob();
+}
+
+export async function getUserDetails(userId) {
+  return request(`${AUTH_BASE}/admin/get-user/${userId}`);
+}
+
+export async function deleteUser(userId) {
+  return request(`${AUTH_BASE}/admin/delete-user/${userId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function assignUserRoles({
+  userId,
+  roleNames,
+  scopeType,
+  scopeId,
+}) {
+  return request(`${AUTH_BASE}/assign-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      target_user_id: userId,
+      role_names: roleNames,
+      scope: { type: scopeType, public_id: scopeId },
+    }),
+  });
+}
+
+export async function revokeUserRoles({
+  userId,
+  roleNames,
+  scopeType,
+  scopeId,
+}) {
+  return request(`${AUTH_BASE}/revoke-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      target_user_id: userId,
+      role_names: roleNames,
+      scope: { type: scopeType, public_id: scopeId },
+    }),
+  });
+}
+
+export async function removeUserFromCase({ caseId, userId }) {
+  return request(`${CASE_BASE}/${caseId}/users/${userId}`, {
+    method: "DELETE",
+  });
 }

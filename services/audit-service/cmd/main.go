@@ -67,7 +67,7 @@ func main() {
 func runMigrations(config *config.EnvDBConfig) error {
 	m, err := migrate.New(
 		"file://./migrations",
-		fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable&search_path=integrity_schema",
 			config.GetUsername(),
 			config.GetPassword(),
 			config.GetHost(),

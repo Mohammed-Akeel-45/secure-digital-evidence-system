@@ -2,16 +2,541 @@ package handlerauth
 
 import (
 	"auth-service-go/internal/auth"
+	"auth-service-go/internal/httpcalls"
 	"auth-service-go/internal/models"
 	"auth-service-go/internal/store"
+	"context"
 	"encoding/json"
-	"log"
+	"fmt"
+	"log/slog"
 
 	"net/http"
+
+	"github.com/gorilla/mux"
 )
 
 type AuthHandler struct {
-	Store *store.Storage
+	Store      *store.Storage
+	HTTPCaller *httpcalls.HTTPCaller
+}
+
+func (h *AuthHandler) AssignRole(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+
+	var roleAssignment models.RoleAssignment
+	if err := json.NewDecoder(r.Body).Decode(&roleAssignment); err != nil {
+		slog.WarnContext(ctx, "Invalid role assignment request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.ROLE_ASSIGN.String()},
+		Scope:        roleAssignment.Scope,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for AssignRole", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to assign role", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to assign a role", http.StatusUnauthorized)
+		return
+	}
+
+	scopeID, err := h.resolveScopeID(ctx, roleAssignment.Scope)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve scope ID in AssignRole", "error", err, "scope_type", roleAssignment.Scope.Type, "public_id", roleAssignment.Scope.PublicID)
+		http.Error(w, "Failed to resolve scope ID", http.StatusInternalServerError)
+		return
+	}
+
+	err = h.Store.AssignRole(ctx, &roleAssignment, scopeID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to assign role in store", "error", err, "scope_id", scopeID)
+		http.Error(w, "Failed to assign role", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *AuthHandler) RevokeRole(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+
+	var roleRevoke models.RoleRevoke
+	if err := json.NewDecoder(r.Body).Decode(&roleRevoke); err != nil {
+		slog.WarnContext(ctx, "Invalid role revoke request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.ROLE_REVOKE.String()},
+		Scope:        roleRevoke.Scope,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for RevokeRole", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to revoke role", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to revoke a role", http.StatusUnauthorized)
+		return
+	}
+
+	scopeID, err := h.resolveScopeID(ctx, roleRevoke.Scope)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve scope ID in RevokeRole", "error", err, "scope_type", roleRevoke.Scope.Type, "public_id", roleRevoke.Scope.PublicID)
+		http.Error(w, "Failed to resolve scope ID", http.StatusInternalServerError)
+		return
+	}
+
+	err = h.Store.RevokeRole(ctx, &roleRevoke, scopeID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to revoke role in store", "error", err, "scope_id", scopeID)
+		http.Error(w, "Failed to revoke role", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *AuthHandler) DetachPermissionsFromRole(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+
+	var detachPermissions models.DetachPermissionsFromRole
+
+	if err := json.NewDecoder(r.Body).Decode(&detachPermissions); err != nil {
+		slog.WarnContext(ctx, "Invalid detach permissions request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.ROLE_EDIT.String()},
+		Scope:        detachPermissions.Scope,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for DetachPermissionsFromRole", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to detach permissions", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to detach permissions from role", http.StatusUnauthorized)
+		return
+	}
+
+	scopeID, err := h.resolveScopeID(ctx, detachPermissions.Scope)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve scope ID in DetachPermissions", "error", err, "scope_type", detachPermissions.Scope.Type, "public_id", detachPermissions.Scope.PublicID)
+		http.Error(w, "Failed to resolve scope ID", http.StatusInternalServerError)
+		return
+	}
+
+	err = h.Store.DetachPermissionsFromRole(ctx, &detachPermissions, scopeID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to detach permissions in store", "error", err, "scope_id", scopeID)
+		http.Error(w, "Failed to detach permissions from role", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *AuthHandler) AttachPermissionsToRole(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+	orgPublicID := claims.OrgID
+
+	var attachPermissions models.AttachPermissionsToRole
+
+	if err := json.NewDecoder(r.Body).Decode(&attachPermissions); err != nil {
+		slog.WarnContext(ctx, "Invalid attach permissions request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.ROLE_EDIT.String()},
+		Scope:        attachPermissions.Scope,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for AttachPermissionsToRole", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to attach permissions", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to attach permissions to role", http.StatusUnauthorized)
+		return
+	}
+
+	scopeID, err := h.resolveScopeID(ctx, attachPermissions.Scope)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve scope ID in AttachPermissions", "error", err, "scope_type", attachPermissions.Scope.Type, "public_id", attachPermissions.Scope.PublicID)
+		http.Error(w, "Failed to resolve scope ID", http.StatusInternalServerError)
+		return
+	}
+
+	err = h.Store.AttachPermissionsToRole(ctx, orgPublicID, &attachPermissions, scopeID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to attach permissions in store", "error", err, "scope_id", scopeID)
+		http.Error(w, "Failed to attach permissions to role", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *AuthHandler) GetOrgRoles(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	orgPublicID := claims.OrgID
+	scopeType := r.URL.Query().Get("scope_type")
+
+	roles, err := h.Store.GetOrgRoles(ctx, orgPublicID, scopeType)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get org roles from store", "error", err, "org_id", orgPublicID, "scope_type", scopeType)
+		http.Error(w, "Failed to get roles", http.StatusInternalServerError)
+		return
+	}
+
+	// If roles are requested in CASE scope or "" scope meaning all scopes then resolve cases internal ids to public ids.
+	if (scopeType == "CASE" || scopeType == "") && len(roles) > 0 {
+		var internalIDs []int64
+		for _, role := range roles {
+			if role.ScopeType == "CASE" && role.ScopeID != "" {
+				var id int64
+				if _, err := fmt.Sscanf(role.ScopeID, "%d", &id); err == nil {
+					internalIDs = append(internalIDs, id)
+				}
+			}
+		}
+
+		if len(internalIDs) > 0 {
+			IDMap, err := h.HTTPCaller.ResolveCaseInternalIDsToPublicIDs(ctx, internalIDs)
+			if err != nil {
+				slog.ErrorContext(ctx, "Failed to resolve case public IDs", "error", err)
+			} else {
+				// Update ScopeID and ScopeName on roles
+				for i := range roles {
+					var id int64
+					if _, err := fmt.Sscanf(roles[i].ScopeID, "%d", &id); err == nil {
+						if pair, found := IDMap[id]; found {
+							roles[i].ScopeID = pair.PublicID
+							roles[i].ScopeName = pair.Name
+						}
+					}
+				}
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(roles)
+}
+
+func (h *AuthHandler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	userPublicID := vars["user_id"]
+
+	userID, err := h.Store.ResolveUserPublicIDToInternalID(ctx, userPublicID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve user public ID to internal ID", "error", err, "public_id", userPublicID)
+		http.Error(w, "Failed to get user", http.StatusInternalServerError)
+		return
+	}
+
+	roles, err := h.Store.GetUserRoles(ctx, userID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get user roles from store", "error", err, "user_id", userID)
+		http.Error(w, "Failed to get roles", http.StatusInternalServerError)
+		return
+	}
+
+	if len(roles) > 0 {
+		var caseInternalIDs []int64
+		for _, role := range roles {
+			if role.ScopeType == "CASE" && role.ScopeID != "" {
+				var id int64
+				if _, err := fmt.Sscanf(role.ScopeID, "%d", &id); err == nil {
+					caseInternalIDs = append(caseInternalIDs, id)
+				}
+			}
+		}
+
+		if len(caseInternalIDs) > 0 {
+			IDMap, err := h.HTTPCaller.ResolveCaseInternalIDsToPublicIDs(ctx, caseInternalIDs)
+			if err != nil {
+				slog.ErrorContext(ctx, "Failed to resolve case public IDs for user roles", "error", err)
+			} else {
+				// Update ScopeID and ScopeName on roles
+				for i := range roles {
+					if roles[i].ScopeType == "CASE" {
+						var id int64
+						if _, err := fmt.Sscanf(roles[i].ScopeID, "%d", &id); err == nil {
+							if pair, found := IDMap[id]; found {
+								roles[i].ScopeID = pair.PublicID
+								roles[i].ScopeName = pair.Name
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(roles)
+}
+
+func (h *AuthHandler) CreateRole(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+
+	var role *models.RoleCreate
+
+	if err := json.NewDecoder(r.Body).Decode(&role); err != nil {
+		slog.WarnContext(ctx, "Invalid create role request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	// If the scope is ORG, set the scope_id to the orgID.
+	if role.Scope.Type == "ORG" {
+		role.Scope.PublicID = claims.OrgID
+	}
+
+	// Check if the user has permission to create a role.
+	permissionCheckRequest := &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Scope:        role.Scope,
+		Permissions:  []string{auth.ROLE_CREATE.String()},
+	}
+
+	missingPermission, err := h.checkPermissions(ctx, permissionCheckRequest)
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for CreateRole", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermission) != 0 {
+		slog.WarnContext(ctx, "User not authorized to create role", "user_id", userID, "missing", missingPermission)
+		http.Error(w, "User doesn't have permission to create a role", http.StatusUnauthorized)
+		return
+	}
+
+	scopeID, err := h.resolveScopeID(ctx, role.Scope)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve scope ID in CreateRole", "error", err, "scope_type", role.Scope.Type, "public_id", role.Scope.PublicID)
+		http.Error(w, "Failed to resolve scope ID", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if the role already exists.
+	exists, err := h.Store.CheckRoleExists(ctx, role.Name, role.Scope.Type, scopeID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to check if role exists in store", "error", err, "role_name", role.Name, "scope_id", scopeID)
+		http.Error(w, "Failed to check if role already exists", http.StatusInternalServerError)
+		return
+	}
+	if exists {
+		slog.WarnContext(ctx, "Role already exists for scope", "role_name", role.Name, "scope_type", role.Scope.Type)
+		http.Error(w, fmt.Sprintf("Role already exists for scope: %s", role.Scope.Type), http.StatusBadRequest)
+		return
+	}
+
+	_, err = h.Store.CreateRole(ctx, claims.OrgID, role, scopeID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to create role in store", "error", err, "role_name", role.Name, "scope_id", scopeID)
+		http.Error(w, "Failed to create role", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (h *AuthHandler) DeleteRole(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+
+	var roleDelete models.RoleDelete
+
+	if err := json.NewDecoder(r.Body).Decode(&roleDelete); err != nil {
+		slog.WarnContext(ctx, "Invalid delete role request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if roleDelete.Name == "ORG_ADMIN" {
+		slog.WarnContext(ctx, "Attempted to delete protected ORG_ADMIN role", "user_id", userID)
+		http.Error(w, "Cannot delete ORG_ADMIN role", http.StatusBadRequest)
+		return
+	}
+
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.ROLE_DELETE.String()},
+		Scope:        roleDelete.Scope,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for DeleteRole", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to delete role", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to delete a role", http.StatusUnauthorized)
+		return
+	}
+
+	scopeID, err := h.resolveScopeID(ctx, roleDelete.Scope)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve scope ID in DeleteRole", "error", err, "scope_type", roleDelete.Scope.Type, "public_id", roleDelete.Scope.PublicID)
+		http.Error(w, "Failed to resolve scope ID", http.StatusInternalServerError)
+		return
+	}
+
+	err = h.Store.DeleteRole(ctx, &roleDelete, scopeID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to delete role in store", "error", err, "role_name", roleDelete.Name, "scope_id", scopeID)
+		http.Error(w, "Failed to delete role", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *AuthHandler) CheckPermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	tokenType := claims.TokenType
+
+	if tokenType != "service" {
+		slog.WarnContext(ctx, "Unauthorized client attempted to check permissions", "token_type", tokenType)
+		http.Error(w, "Invalid token type", http.StatusUnauthorized)
+		return
+	}
+
+	var permCheckRequest models.PermissionCheckRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&permCheckRequest); err != nil {
+		slog.WarnContext(ctx, "Invalid permission check request body", "error", err)
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	missingPermissions, err := h.checkPermissions(ctx, &permCheckRequest)
+	if err != nil {
+		slog.ErrorContext(ctx, "checkPermissions failed", "error", err)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	permissionCheckResponse := &models.PermissionCheckResponse{Allowed: len(missingPermissions) == 0, MissingPermissions: missingPermissions}
+
+	json.NewEncoder(w).Encode(permissionCheckResponse)
+}
+
+func (h *AuthHandler) ResolveUserPublicIDToInternalID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	publicID := vars["public_id"]
+
+	userID, err := h.Store.ResolveUserPublicIDToInternalID(ctx, publicID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve user public ID to internal ID", "error", err, "public_id", publicID)
+		http.Error(w, "Failed to get user", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]int64{"id": userID})
+}
+
+func (h *AuthHandler) ResolveOrgByPublicID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	publicID := vars["public_id"]
+
+	org, err := h.Store.GetOrgByPublicID(ctx, publicID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get organisation by public ID", "error", err, "public_id", publicID)
+		http.Error(w, "Failed to get organisation", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]int64{"id": org.ID})
+}
+
+func (h *AuthHandler) ResolveDepartmentByPublicID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	publicID := vars["public_id"]
+
+	department, err := h.Store.ResolveDepartmentByPublicID(ctx, publicID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve department by public ID", "error", err, "public_id", publicID)
+		http.Error(w, "Failed to get department", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]int64{"id": department.ID})
 }
 
 func (h *AuthHandler) AdminRegister(w http.ResponseWriter, r *http.Request) {
@@ -19,13 +544,14 @@ func (h *AuthHandler) AdminRegister(w http.ResponseWriter, r *http.Request) {
 	var creds models.OraganisationRegistration
 
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		log.Println(err)
+		slog.WarnContext(ctx, "Invalid admin register request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	// Check if the organisation already exists.
 	if h.Store.CheckOrgExists(ctx, creds.OrganisationName) {
+		slog.WarnContext(ctx, "Attempted to register existing organisation name", "org_name", creds.OrganisationName)
 		http.Error(w, "Organisation already exists", http.StatusBadRequest)
 		return
 	}
@@ -33,6 +559,7 @@ func (h *AuthHandler) AdminRegister(w http.ResponseWriter, r *http.Request) {
 	// Check if the admin email already exists.
 	_, err := h.Store.GetUserByEmail(ctx, creds.AdminEmail)
 	if err == nil {
+		slog.WarnContext(ctx, "Attempted to register existing admin email", "email", creds.AdminEmail)
 		http.Error(w, "Email already registered", http.StatusBadRequest)
 		return
 	}
@@ -44,7 +571,7 @@ func (h *AuthHandler) AdminRegister(w http.ResponseWriter, r *http.Request) {
 	// insert new user into database.
 	adminPublic, err := h.Store.RegisterOrgAndAdmin(ctx, &creds)
 	if err != nil {
-		log.Println(err)
+		slog.ErrorContext(ctx, "Could not register organisation and admin", "error", err, "org_name", creds.OrganisationName, "admin_email", creds.AdminEmail)
 		http.Error(w, "Could not register organisation", http.StatusInternalServerError)
 		return
 	}
@@ -52,6 +579,7 @@ func (h *AuthHandler) AdminRegister(w http.ResponseWriter, r *http.Request) {
 	// generate the access token. Valid for 1 hour.
 	accToken, err := auth.GenerateToken(adminPublic.OrgID, adminPublic.ID)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to generate token for admin registration", "error", err, "admin_id", adminPublic.ID)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -72,6 +600,7 @@ func (h *AuthHandler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	var creds models.AdminLogin
 
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		slog.WarnContext(ctx, "Invalid admin login request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -79,7 +608,8 @@ func (h *AuthHandler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	// get user with the email from the database.
 	user, err := h.Store.GetUserByEmail(ctx, creds.AdminEmail)
 	// return error if user doesn't already exists or password doesn't match the password.
-	if err != nil || !user.IsOrgAdmin || !auth.CheckPassword(creds.AdminPassword, user.Password) {
+	if err != nil || !h.Store.CheckUserIsOrgAdmin(ctx, creds.AdminEmail) || !auth.CheckPassword(creds.AdminPassword, user.Password) {
+		slog.WarnContext(ctx, "Failed admin login attempt", "email", creds.AdminEmail)
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -87,6 +617,7 @@ func (h *AuthHandler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	// generate the access token. Valid for 1 hour.
 	accToken, err := auth.GenerateToken(user.OrgID, user.ID)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to generate token for admin login", "error", err, "admin_id", user.ID)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -102,15 +633,18 @@ func (h *AuthHandler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) GetServiceToken(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	var creds models.Service
 
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		slog.WarnContext(ctx, "Invalid get service token request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
 	token, err := auth.GenerateServiceToken(creds)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to generate service token", "error", err, "service_name", creds.ServiceName)
 		http.Error(w, "Failed to generate service token", http.StatusInternalServerError)
 		return
 	}
@@ -122,20 +656,35 @@ func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	claims, ok := ctx.Value("claims").(*models.Claims)
 	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
 		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
 		return
 	}
 	userID := claims.Subject
 	var creds models.User
 
-	// Check if the user is an admin.
-	if !h.Store.CheckUserIsOrgAdmin(ctx, userID) {
-		http.Error(w, "User doesn't have admin privileges", http.StatusUnauthorized)
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.USER_CREATE.String()},
+		Scope: models.Scope{
+			Type:     "ORG",
+			PublicID: claims.OrgID,
+		},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for CreateUser", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to create user", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to create a user", http.StatusUnauthorized)
 		return
 	}
 
 	// Get the user details from request body.
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		slog.WarnContext(ctx, "Invalid create user request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -144,6 +693,7 @@ func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	// Hash the user password.
 	hashedPassword, err := auth.HashPassword(creds.Password)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to hash user password", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -152,6 +702,7 @@ func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	// insert new user into database.
 	createdUserID, err := h.Store.CreateUser(ctx, &creds)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to create user in store", "error", err, "email", creds.Email)
 		http.Error(w, "Could not create user", http.StatusInternalServerError)
 		return
 	}
@@ -165,6 +716,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var creds models.User
 
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		slog.WarnContext(ctx, "Invalid login request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
@@ -173,6 +725,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	user, err := h.Store.GetUserByEmail(ctx, creds.Email)
 	// return error if user doesn't already exists or password doesn't match the password.
 	if err != nil || !auth.CheckPassword(creds.Password, user.Password) {
+		slog.WarnContext(ctx, "Failed login attempt", "email", creds.Email)
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -180,6 +733,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// generate the access token. Valid for 1 hour.
 	accToken, err := auth.GenerateToken(user.OrgID, user.ID)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to generate token for login", "error", err, "user_id", user.ID)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -191,21 +745,41 @@ func (h *AuthHandler) GetOrgUsers(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	claims, ok := ctx.Value("claims").(*models.Claims)
 	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
 		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
 		return
 	}
 	userID := claims.Subject
 
-	// Check if the user is an admin.
-	if !h.Store.CheckUserIsOrgAdmin(ctx, userID) {
-		http.Error(w, "User doesn't have admin privileges", http.StatusUnauthorized)
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.USER_VIEW.String()},
+		Scope: models.Scope{
+			Type:     "ORG",
+			PublicID: claims.OrgID,
+		},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for GetOrgUsers", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to view users", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to view users", http.StatusUnauthorized)
 		return
 	}
 
-	orgID := claims.OrgID
-	users, err := h.Store.GetOrgUsers(ctx, orgID)
+	org, err := h.Store.GetOrgByPublicID(ctx, claims.OrgID)
 	if err != nil {
-		log.Println(err)
+		slog.ErrorContext(ctx, "Failed to resolve org public ID in GetOrgUsers", "error", err, "org_public_id", claims.OrgID)
+		http.Error(w, "Token contains invalid orgID", http.StatusBadRequest)
+		return
+	}
+
+	users, err := h.Store.GetOrgUsers(ctx, org.ID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get organisation users from store", "error", err, "org_id", org.ID)
 		http.Error(w, "Failed to get organisation users", http.StatusInternalServerError)
 		return
 	}
@@ -217,26 +791,45 @@ func (h *AuthHandler) CreateDepartment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	claims, ok := ctx.Value("claims").(*models.Claims)
 	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
 		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
 		return
 	}
 	userID := claims.Subject
 
-	// Check if the user is an admin.
-	if !h.Store.CheckUserIsOrgAdmin(ctx, userID) {
-		http.Error(w, "User doesn't have admin privileges", http.StatusUnauthorized)
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.DEPARTMENT_CREATE.String()},
+		Scope: models.Scope{
+			Type:     "ORG",
+			PublicID: claims.OrgID,
+		},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for CreateDepartment", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to create department", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to create a department", http.StatusUnauthorized)
 		return
 	}
 
 	var department models.DepartmentRegistration
 
 	if err := json.NewDecoder(r.Body).Decode(&department); err != nil {
+		slog.WarnContext(ctx, "Invalid create department request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
+	// If OrgID isn't sent in the body use the one available in claims.
+	department.OrgID = claims.OrgID
+
 	departPublicID, err := h.Store.CreateDepartment(ctx, &department)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to create department in store", "error", err, "name", department.Name)
 		http.Error(w, "Failed to create department", http.StatusInternalServerError)
 		return
 	}
@@ -249,21 +842,41 @@ func (h *AuthHandler) GetAllOrgDepartments(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 	claims, ok := ctx.Value("claims").(*models.Claims)
 	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
 		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
 		return
 	}
 	userID := claims.Subject
 
-	// Check if the user is an admin.
-	if !h.Store.CheckUserIsOrgAdmin(ctx, userID) {
-		http.Error(w, "User doesn't have admin privileges", http.StatusUnauthorized)
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.DEPARTMENT_VIEW.String()},
+		Scope: models.Scope{
+			Type:     "ORG",
+			PublicID: claims.OrgID,
+		},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for GetAllOrgDepartments", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to view departments", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to view departments", http.StatusUnauthorized)
 		return
 	}
 
-	orgID := claims.OrgID
-
-	departments, err := h.Store.GetAllOrgDepartments(ctx, orgID)
+	org, err := h.Store.GetOrgByPublicID(ctx, claims.OrgID)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve org public ID in GetAllOrgDepartments", "error", err, "org_public_id", claims.OrgID)
+		http.Error(w, "Token contains invalid orgID", http.StatusBadRequest)
+		return
+	}
+
+	departments, err := h.Store.GetAllOrgDepartments(ctx, org.ID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get organisation departments from store", "error", err, "org_id", org.ID)
 		http.Error(w, "Failed to get organisation departments", http.StatusInternalServerError)
 		return
 	}
@@ -275,26 +888,42 @@ func (h *AuthHandler) UpdateUserDepartment(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 	claims, ok := ctx.Value("claims").(*models.Claims)
 	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
 		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
 		return
 	}
 	userID := claims.Subject
 
-	// Check if the user is an admin.
-	if !h.Store.CheckUserIsOrgAdmin(ctx, userID) {
-		http.Error(w, "User doesn't have admin privileges", http.StatusUnauthorized)
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.USER_EDIT.String()},
+		Scope: models.Scope{
+			Type:     "ORG",
+			PublicID: claims.OrgID,
+		},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for UpdateUserDepartment", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to edit user department", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to edit user department", http.StatusUnauthorized)
 		return
 	}
 
 	var department models.UpdateUserDepartment
 
 	if err := json.NewDecoder(r.Body).Decode(&department); err != nil {
+		slog.WarnContext(ctx, "Invalid update user department request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	err := h.Store.UpdateUserDepartment(ctx, department.UserID, department.ID)
+	err = h.Store.UpdateUserDepartment(ctx, department.UserID, department.ID)
 	if err != nil {
+		slog.ErrorContext(ctx, "Failed to update user department in store", "error", err, "user_public_id", department.UserID, "dept_public_id", department.ID)
 		http.Error(w, "Failed to update user department", http.StatusInternalServerError)
 		return
 	}
@@ -306,27 +935,241 @@ func (h *AuthHandler) DeleteDepartment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	claims, ok := ctx.Value("claims").(*models.Claims)
 	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
 		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
 		return
 	}
 	userID := claims.Subject
 
-	// Check if the user is an admin.
-	if !h.Store.CheckUserIsOrgAdmin(ctx, userID) {
-		http.Error(w, "User doesn't have admin privileges", http.StatusUnauthorized)
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.DEPARTMENT_DELETE.String()},
+		Scope: models.Scope{
+			Type:     "ORG",
+			PublicID: claims.OrgID,
+		},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for DeleteDepartment", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to delete department", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to delete a department", http.StatusUnauthorized)
 		return
 	}
 
 	var department models.DeleteDepartment
 
 	if err := json.NewDecoder(r.Body).Decode(&department); err != nil {
+		slog.WarnContext(ctx, "Invalid delete department request body", "error", err)
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
 
-	err := h.Store.DeleteDepartment(ctx, department.ID)
+	tx, deptID, orgID, err := h.Store.DeleteDepartmentStart(ctx, department.ID)
 	if err != nil {
-		http.Error(w, "Failed to delete department", http.StatusInternalServerError)
+		slog.ErrorContext(ctx, "Failed to start department deletion in store", "error", err, "dept_public_id", department.ID)
+		http.Error(w, "Failed to start department deletion", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// Get all the cases in the department from case-service.
+	cases, err := h.HTTPCaller.GetDepartmentCases(ctx, orgID, deptID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to fetch department cases via HTTP", "error", err, "org_id", orgID, "dept_id", deptID)
+		http.Error(w, "Failed to fetch department cases", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete roles for the cases and department.
+	err = h.Store.DeleteDepartmentRoles(ctx, tx, deptID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to delete department roles in store", "error", err, "dept_id", deptID)
+		http.Error(w, "Failed to delete department roles", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete all roles for the cases that belong to the department
+	err = h.Store.DeleteCaseRoles(ctx, tx, cases)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to delete department case roles in store", "error", err, "case_ids", cases)
+		http.Error(w, "Failed to delete department case roles", http.StatusInternalServerError)
+		return
+	}
+
+	// Delete all cases in the department via case-service.
+	err = h.HTTPCaller.DeleteDepartmentCases(ctx, orgID, deptID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to delete department cases via HTTP", "error", err, "org_id", orgID, "dept_id", deptID)
+		http.Error(w, "Failed to delete department cases from case service", http.StatusInternalServerError)
+		return
+	}
+
+	err = tx.Commit(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to commit department deletion transaction", "error", err)
+		http.Error(w, "Failed to commit department deletion", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (h *AuthHandler) GetAllPermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	permissions, err := h.Store.GetAllPermissions(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get all permissions from store", "error", err)
+		http.Error(w, "Failed to get permissions", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(permissions)
+}
+
+func (h *AuthHandler) GetRolePermissions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	roleName := vars["role_name"]
+
+	scopeType := r.URL.Query().Get("scope_type")
+	scopePublicID := r.URL.Query().Get("scope_id")
+
+	var scopeID int64
+	var err error
+	if scopeType != "" && scopePublicID != "" {
+		scopeID, err = h.resolveScopeID(ctx, models.Scope{Type: scopeType, PublicID: scopePublicID})
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to resolve scope ID in GetRolePermissions", "error", err, "scope_type", scopeType, "scope_id", scopePublicID)
+			http.Error(w, "Failed to resolve scope ID", http.StatusBadRequest)
+			return
+		}
+	}
+
+	permissions, err := h.Store.GetRolePermissions(ctx, roleName, scopeType, scopeID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get role permissions from store", "error", err, "role_name", roleName, "scope_type", scopeType, "scope_id", scopeID)
+		http.Error(w, "Failed to get permissions", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(permissions)
+}
+
+func (h *AuthHandler) resolveScopeID(ctx context.Context, scope models.Scope) (int64, error) {
+	switch scope.Type {
+	case "ORG":
+		org, err := h.Store.GetOrgByPublicID(ctx, scope.PublicID)
+		if err != nil {
+			return 0, err
+		}
+		return org.ID, nil
+	case "DEPARTMENT":
+		department, err := h.Store.ResolveDepartmentByPublicID(ctx, scope.PublicID)
+		if err != nil {
+			return 0, err
+		}
+		return department.ID, nil
+	case "CASE":
+		caseID, err := h.HTTPCaller.ResolveCasePublicIDToInternalID(ctx, scope.PublicID)
+		if err != nil {
+			return 0, err
+		}
+		return caseID, nil
+	default:
+		return 0, fmt.Errorf("invalid scope type: %s", scope.Type)
+	}
+}
+
+func (h *AuthHandler) checkPermissions(ctx context.Context, req *models.PermissionCheckRequest) ([]string, error) {
+	var caseDetails *models.CaseDetails
+	if req.Scope.Type == "CASE" {
+		var err error
+		caseDetails, err = h.HTTPCaller.GetCaseDetails(ctx, req.Scope.PublicID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return h.Store.CheckPermissions(ctx, req, caseDetails)
+}
+
+func (h *AuthHandler) ResolveDepartmentInternalIDToPublicID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	internalIDStr := vars["internal_id"]
+
+	var internalID int64
+	_, err := fmt.Sscanf(internalIDStr, "%d", &internalID)
+	if err != nil {
+		slog.WarnContext(ctx, "Invalid department internal ID", "error", err, "internal_id", internalIDStr)
+		http.Error(w, "Invalid internal ID", http.StatusBadRequest)
+		return
+	}
+
+	publicID, err := h.Store.ResolveDepartmentInternalIDToPublicID(ctx, internalID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve department internal ID to public ID", "error", err, "internal_id", internalID)
+		http.Error(w, "Failed to resolve department", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"public_id": publicID})
+}
+
+func (h *AuthHandler) GetUserDetails(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	userPublicID := vars["user_id"]
+
+	user, err := h.Store.GetUserDetailsByPublicID(ctx, userPublicID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get user details by public ID", "error", err, "public_id", userPublicID)
+		http.Error(w, "Failed to get user", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(user)
+}
+
+func (h *AuthHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+	vars := mux.Vars(r)
+	targetUserPublicID := vars["user_id"]
+
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.USER_DELETE.String()},
+		Scope: models.Scope{
+			Type:     "ORG",
+			PublicID: claims.OrgID,
+		},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for DeleteUser", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to delete user", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to delete a user", http.StatusForbidden)
+		return
+	}
+
+	err = h.Store.DeleteUser(ctx, targetUserPublicID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to delete user in store", "error", err, "target_user_public_id", targetUserPublicID)
+		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
