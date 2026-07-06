@@ -112,6 +112,63 @@ async function resolveUserByPublicId(publicId) {
   }
 }
 
+async function resolveDepartmentPublicId(internalId) {
+  try {
+    const response = await fetch(
+      `http://sdes_auth:3001/api/v1/auth/internal/org/department/resolve-internal-id/${internalId}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${serviceToken}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to resolve department public ID: ${response.statusText}`);
+    }
+    const result = await response.json();
+    return result.public_id;
+  } catch (err) {
+    console.error("Failed to resolve department public ID:", err);
+    throw err;
+  }
+}
+
+async function checkPermission(userPublicId, permission, scopeType, scopePublicId) {
+  try {
+    const response = await fetch(
+      `http://sdes_auth:3001/api/v1/auth/internal/check-permissions`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${serviceToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_public_id: userPublicId,
+          permissions: [permission],
+          scope: {
+            type: scopeType,
+            public_id: scopePublicId,
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`Permission check failed: ${response.statusText}`);
+    }
+    const result = await response.json();
+    return result.allowed;
+  } catch (err) {
+    console.error("Permission check request failed:", err);
+    return false;
+  }
+}
+
+
 // Valid case statuses
 const VALID_STATUSES = ["OPEN", "CLOSED", "IN_PROGRESS", "ARCHIVED"];
 
@@ -223,8 +280,8 @@ export const getDepartmentCasesInternal = async (req, res) => {
 
 // GET ALL CASES (scoped to user's assigned cases)
 export const getAllCases = async (req, res) => {
-  const userPublicId = req.tokenClaims.sub;
-  const { department_id } = req.query;
+  const { department_id, user_id } = req.query;
+  const userPublicId = user_id || req.tokenClaims.sub;
 
   try {
     let query = `
@@ -384,10 +441,27 @@ export const assignUserToCase = async (req, res) => {
       return res.status(404).json({ error: "Case not found" });
     }
 
+    // Verify permission at department level
+    const deptPublicId = await resolveDepartmentPublicId(caseData.dept_id);
+    const allowed = await checkPermission(userPublicId, "CASE_ASSIGN", "DEPARTMENT", deptPublicId);
+    if (!allowed) {
+      return res.status(403).json({ error: "User doesn't have permission to assign a user to case" });
+    }
+
     // Resolve the target user's internal id
     const targetUserId = await resolveUserByPublicId(user_id);
     if (!targetUserId) {
       return res.status(404).json({ error: "Target user not found" });
+    }
+
+    // Verify user belongs to same department as case
+    const userDeptResult = await pool.query(
+      "SELECT dept_id FROM auth_schema.users WHERE id = $1",
+      [targetUserId]
+    );
+    const userDeptId = userDeptResult.rows[0]?.dept_id;
+    if (!userDeptId || userDeptId != caseData.dept_id) {
+      return res.status(400).json({ error: "User must belong to the same department as the case" });
     }
 
     await pool.query(
@@ -443,6 +517,13 @@ export const removeUserFromCase = async (req, res) => {
     const caseData = await resolveCaseByPublicId(id);
     if (!caseData) {
       return res.status(404).json({ error: "Case not found" });
+    }
+
+    // Verify permission at department level
+    const deptPublicId = await resolveDepartmentPublicId(caseData.dept_id);
+    const allowed = await checkPermission(userPublicId, "CASE_ASSIGN", "DEPARTMENT", deptPublicId);
+    if (!allowed) {
+      return res.status(403).json({ error: "User doesn't have permission to remove a user from case" });
     }
 
     // Resolve target user internal id

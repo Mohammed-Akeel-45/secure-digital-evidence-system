@@ -53,17 +53,28 @@ export async function registerAdmin({ name, email, password, orgName }) {
   });
 }
 
-export async function createMember({ name, email, password, role }) {
+export async function createMember({ name, email, password, org_role, department_id, department_role }) {
   return request(`${AUTH_BASE}/admin/create-user`, {
     method: "POST",
-    body: JSON.stringify({ name, email, password, role }),
+    body: JSON.stringify({
+      name,
+      email,
+      password,
+      org_role,
+      department_id,
+      department_role
+    }),
   });
 }
 
-export async function getCases(departmentId) {
-  const url = departmentId
-    ? `${CASE_BASE}/?department_id=${departmentId}`
-    : `${CASE_BASE}`;
+export async function getCases(departmentId, userId) {
+  let url = `${CASE_BASE}`;
+  const params = [];
+  if (departmentId) params.push(`department_id=${departmentId}`);
+  if (userId) params.push(`user_id=${userId}`);
+  if (params.length > 0) {
+    url += `?${params.join("&")}`;
+  }
   return request(url);
 }
 
@@ -110,8 +121,44 @@ export async function getAllPermissions() {
   return request(`${AUTH_BASE}/get-all-permissions`);
 }
 
-export async function getRolePermissions(roleName) {
-  return request(`${AUTH_BASE}/get-role-permissions/${roleName}`);
+export async function getRolePermissions(roleName, scopeType, scopeId) {
+  const url =
+    scopeType && scopeId
+      ? `${AUTH_BASE}/get-role-permissions/${roleName}?scope_type=${scopeType}&scope_id=${scopeId}`
+      : `${AUTH_BASE}/get-role-permissions/${roleName}`;
+  return request(url);
+}
+
+export async function attachPermissionsToRole({
+  roleName,
+  scopeType,
+  scopeId,
+  permissions,
+}) {
+  return request(`${AUTH_BASE}/attach-permissions-to-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      role_name: roleName,
+      scope: { type: scopeType, public_id: scopeId },
+      permission_names: permissions,
+    }),
+  });
+}
+
+export async function detachPermissionsFromRole({
+  roleName,
+  scopeType,
+  scopeId,
+  permissions,
+}) {
+  return request(`${AUTH_BASE}/detach-permissions-from-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      role_name: roleName,
+      scope: { type: scopeType, public_id: scopeId },
+      permission_names: permissions,
+    }),
+  });
 }
 
 export async function getOrgRoles(scopeType) {
@@ -200,4 +247,52 @@ export async function downloadEvidence(evidenceId) {
     throw new Error("Download failed");
   }
   return res.blob();
+}
+
+export async function getUserDetails(userId) {
+  return request(`${AUTH_BASE}/admin/get-user/${userId}`);
+}
+
+export async function deleteUser(userId) {
+  return request(`${AUTH_BASE}/admin/delete-user/${userId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function assignUserRoles({
+  userId,
+  roleNames,
+  scopeType,
+  scopeId,
+}) {
+  return request(`${AUTH_BASE}/assign-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      target_user_id: userId,
+      role_names: roleNames,
+      scope: { type: scopeType, public_id: scopeId },
+    }),
+  });
+}
+
+export async function revokeUserRoles({
+  userId,
+  roleNames,
+  scopeType,
+  scopeId,
+}) {
+  return request(`${AUTH_BASE}/revoke-role`, {
+    method: "POST",
+    body: JSON.stringify({
+      target_user_id: userId,
+      role_names: roleNames,
+      scope: { type: scopeType, public_id: scopeId },
+    }),
+  });
+}
+
+export async function removeUserFromCase({ caseId, userId }) {
+  return request(`${CASE_BASE}/${caseId}/users/${userId}`, {
+    method: "DELETE",
+  });
 }

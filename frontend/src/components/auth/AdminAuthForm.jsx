@@ -19,7 +19,7 @@ function AdminLoginForm() {
         setError(''); setLoading(true);
         try {
             const data = await loginAdmin(form);
-            login({ id: data.user_id, name: data.user_name, role: 'admin' }, data.access_token);
+            login({ id: data.user_id, name: data.user_name, role: 'admin', email: data.user_email }, data.access_token);
         } catch (err) {
             setError(err.message.toUpperCase());
         } finally { setLoading(false); }

@@ -103,12 +103,15 @@ func main() {
 	// Internal routes.
 	router.Handle("/api/v1/auth/internal/org/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveOrgByPublicID))).Methods("GET")
 	router.Handle("/api/v1/auth/internal/org/department/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveDepartmentByPublicID))).Methods("GET")
+	router.Handle("/api/v1/auth/internal/org/department/resolve-internal-id/{internal_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveDepartmentInternalIDToPublicID))).Methods("GET")
 	router.Handle("/api/v1/auth/internal/user/resolve/{public_id}", middleware.JWTMiddleware(http.HandlerFunc(h.ResolveUserPublicIDToInternalID))).Methods("GET")
 	router.Handle("/api/v1/auth/internal/check-permissions", middleware.JWTMiddleware(http.HandlerFunc(h.CheckPermissions))).Methods("POST")
 
 	// user routes.
 	router.Handle("/api/v1/auth/admin/create-user", middleware.JWTMiddleware(http.HandlerFunc(h.CreateUser))).Methods("POST")
 	router.Handle("/api/v1/auth/admin/get-org-users", middleware.JWTMiddleware(http.HandlerFunc(h.GetOrgUsers))).Methods("GET")
+	router.Handle("/api/v1/auth/admin/get-user/{user_id}", middleware.JWTMiddleware(http.HandlerFunc(h.GetUserDetails))).Methods("GET")
+	router.Handle("/api/v1/auth/admin/delete-user/{user_id}", middleware.JWTMiddleware(http.HandlerFunc(h.DeleteUser))).Methods("DELETE")
 	router.Handle("/api/v1/auth/admin/update-user-department", middleware.JWTMiddleware(http.HandlerFunc(h.UpdateUserDepartment))).Methods("POST")
 
 	// department routes.

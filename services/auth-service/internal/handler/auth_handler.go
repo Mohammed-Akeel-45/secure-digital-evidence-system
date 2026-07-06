@@ -241,10 +241,11 @@ func (h *AuthHandler) GetOrgRoles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if scopeType == "CASE" && len(roles) > 0 {
+	// If roles are requested in CASE scope or "" scope meaning all scopes then resolve cases internal ids to public ids.
+	if (scopeType == "CASE" || scopeType == "") && len(roles) > 0 {
 		var internalIDs []int64
 		for _, role := range roles {
-			if role.ScopeID != "" {
+			if role.ScopeType == "CASE" && role.ScopeID != "" {
 				var id int64
 				if _, err := fmt.Sscanf(role.ScopeID, "%d", &id); err == nil {
 					internalIDs = append(internalIDs, id)
@@ -291,6 +292,38 @@ func (h *AuthHandler) GetUserRoles(w http.ResponseWriter, r *http.Request) {
 		slog.ErrorContext(ctx, "Failed to get user roles from store", "error", err, "user_id", userID)
 		http.Error(w, "Failed to get roles", http.StatusInternalServerError)
 		return
+	}
+
+	if len(roles) > 0 {
+		var caseInternalIDs []int64
+		for _, role := range roles {
+			if role.ScopeType == "CASE" && role.ScopeID != "" {
+				var id int64
+				if _, err := fmt.Sscanf(role.ScopeID, "%d", &id); err == nil {
+					caseInternalIDs = append(caseInternalIDs, id)
+				}
+			}
+		}
+
+		if len(caseInternalIDs) > 0 {
+			IDMap, err := h.HTTPCaller.ResolveCaseInternalIDsToPublicIDs(ctx, caseInternalIDs)
+			if err != nil {
+				slog.ErrorContext(ctx, "Failed to resolve case public IDs for user roles", "error", err)
+			} else {
+				// Update ScopeID and ScopeName on roles
+				for i := range roles {
+					if roles[i].ScopeType == "CASE" {
+						var id int64
+						if _, err := fmt.Sscanf(roles[i].ScopeID, "%d", &id); err == nil {
+							if pair, found := IDMap[id]; found {
+								roles[i].ScopeID = pair.PublicID
+								roles[i].ScopeName = pair.Name
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	json.NewEncoder(w).Encode(roles)
@@ -674,28 +707,6 @@ func (h *AuthHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if creds.Role != "" {
-		scopeID, err := h.resolveScopeID(ctx, models.Scope{
-			Type:     "ORG",
-			PublicID: claims.OrgID,
-		})
-		if err != nil {
-			slog.ErrorContext(ctx, "Failed to resolve org scope ID for new user role assignment", "user_id", createdUserID, "error", err)
-		} else {
-			err = h.Store.AssignRole(ctx, &models.RoleAssignment{
-				Names:              []string{creds.Role},
-				TargetUserPublicID: createdUserID,
-				Scope: models.Scope{
-					Type:     "ORG",
-					PublicID: claims.OrgID,
-				},
-			}, scopeID)
-			if err != nil {
-				slog.ErrorContext(ctx, "Failed to assign role to new user in store", "role", creds.Role, "user_id", createdUserID, "error", err)
-			}
-		}
-	}
-
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]any{"user_id": createdUserID, "user_email": creds.Email})
 }
@@ -1024,9 +1035,23 @@ func (h *AuthHandler) GetRolePermissions(w http.ResponseWriter, r *http.Request)
 	vars := mux.Vars(r)
 	roleName := vars["role_name"]
 
-	permissions, err := h.Store.GetRolePermissions(ctx, roleName)
+	scopeType := r.URL.Query().Get("scope_type")
+	scopePublicID := r.URL.Query().Get("scope_id")
+
+	var scopeID int64
+	var err error
+	if scopeType != "" && scopePublicID != "" {
+		scopeID, err = h.resolveScopeID(ctx, models.Scope{Type: scopeType, PublicID: scopePublicID})
+		if err != nil {
+			slog.ErrorContext(ctx, "Failed to resolve scope ID in GetRolePermissions", "error", err, "scope_type", scopeType, "scope_id", scopePublicID)
+			http.Error(w, "Failed to resolve scope ID", http.StatusBadRequest)
+			return
+		}
+	}
+
+	permissions, err := h.Store.GetRolePermissions(ctx, roleName, scopeType, scopeID)
 	if err != nil {
-		slog.ErrorContext(ctx, "Failed to get role permissions from store", "error", err, "role_name", roleName)
+		slog.ErrorContext(ctx, "Failed to get role permissions from store", "error", err, "role_name", roleName, "scope_type", scopeType, "scope_id", scopeID)
 		http.Error(w, "Failed to get permissions", http.StatusInternalServerError)
 		return
 	}
@@ -1069,4 +1094,83 @@ func (h *AuthHandler) checkPermissions(ctx context.Context, req *models.Permissi
 		}
 	}
 	return h.Store.CheckPermissions(ctx, req, caseDetails)
+}
+
+func (h *AuthHandler) ResolveDepartmentInternalIDToPublicID(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	internalIDStr := vars["internal_id"]
+
+	var internalID int64
+	_, err := fmt.Sscanf(internalIDStr, "%d", &internalID)
+	if err != nil {
+		slog.WarnContext(ctx, "Invalid department internal ID", "error", err, "internal_id", internalIDStr)
+		http.Error(w, "Invalid internal ID", http.StatusBadRequest)
+		return
+	}
+
+	publicID, err := h.Store.ResolveDepartmentInternalIDToPublicID(ctx, internalID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to resolve department internal ID to public ID", "error", err, "internal_id", internalID)
+		http.Error(w, "Failed to resolve department", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"public_id": publicID})
+}
+
+func (h *AuthHandler) GetUserDetails(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	userPublicID := vars["user_id"]
+
+	user, err := h.Store.GetUserDetailsByPublicID(ctx, userPublicID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to get user details by public ID", "error", err, "public_id", userPublicID)
+		http.Error(w, "Failed to get user", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(user)
+}
+
+func (h *AuthHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		slog.ErrorContext(ctx, "Failed to get claims from token")
+		http.Error(w, "Failed to get claims from the token", http.StatusInternalServerError)
+		return
+	}
+	userID := claims.Subject
+	vars := mux.Vars(r)
+	targetUserPublicID := vars["user_id"]
+
+	missingPermissions, err := h.checkPermissions(ctx, &models.PermissionCheckRequest{
+		UserPublicID: userID,
+		Permissions:  []string{auth.USER_DELETE.String()},
+		Scope: models.Scope{
+			Type:     "ORG",
+			PublicID: claims.OrgID,
+		},
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "Permission check failed for DeleteUser", "error", err, "user_id", userID)
+		http.Error(w, "Failed to check permissions", http.StatusInternalServerError)
+		return
+	}
+	if len(missingPermissions) != 0 {
+		slog.WarnContext(ctx, "User not authorized to delete user", "user_id", userID, "missing", missingPermissions)
+		http.Error(w, "User doesn't have permission to delete a user", http.StatusForbidden)
+		return
+	}
+
+	err = h.Store.DeleteUser(ctx, targetUserPublicID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to delete user in store", "error", err, "target_user_public_id", targetUserPublicID)
+		http.Error(w, "Failed to delete user", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
