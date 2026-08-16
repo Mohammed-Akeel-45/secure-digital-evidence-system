@@ -28,9 +28,6 @@ func main() {
 		port = "3001"
 	}
 	serviceToken := os.Getenv("SERVICE_TOKEN")
-	if serviceToken == "" {
-		log.Fatal("No service token provided")
-	}
 
 	// Get private key from "private.pem" file.
 	privBytes, err := os.ReadFile("private.pem")

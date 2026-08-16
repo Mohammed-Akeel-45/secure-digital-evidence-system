@@ -1,6 +1,5 @@
 import pool from "../config/db.js";
-
-const serviceToken = process.env.SERVICE_TOKEN;
+import { getServiceToken } from "../utils/serviceTokenManager.js";
 
 // Helper: resolve case by public_id
 export async function resolveCaseByPublicId(publicId) {
@@ -40,6 +39,7 @@ export async function resolveCaseInternalIdsToPublicIds(internalIds) {
 
 async function resolveOrgByPublicId(publicId) {
   try {
+    const serviceToken = await getServiceToken();
     const response = await fetch(
       `http://sdes_auth:3001/api/v1/auth/internal/org/resolve/${publicId}`,
       {
@@ -64,6 +64,7 @@ async function resolveOrgByPublicId(publicId) {
 
 async function resolveDepartmentByPublicId(publicId) {
   try {
+    const serviceToken = await getServiceToken();
     const response = await fetch(
       `http://sdes_auth:3001/api/v1/auth/internal/org/department/resolve/${publicId}`,
       {
@@ -90,6 +91,7 @@ async function resolveDepartmentByPublicId(publicId) {
 
 async function resolveUserByPublicId(publicId) {
   try {
+    const serviceToken = await getServiceToken();
     const response = await fetch(
       `http://sdes_auth:3001/api/v1/auth/internal/user/resolve/${publicId}`,
       {
@@ -114,6 +116,7 @@ async function resolveUserByPublicId(publicId) {
 
 async function resolveDepartmentPublicId(internalId) {
   try {
+    const serviceToken = await getServiceToken();
     const response = await fetch(
       `http://sdes_auth:3001/api/v1/auth/internal/org/department/resolve-internal-id/${internalId}`,
       {
@@ -138,6 +141,7 @@ async function resolveDepartmentPublicId(internalId) {
 
 async function checkPermission(userPublicId, permission, scopeType, scopePublicId) {
   try {
+    const serviceToken = await getServiceToken();
     const response = await fetch(
       `http://sdes_auth:3001/api/v1/auth/internal/check-permissions`,
       {
