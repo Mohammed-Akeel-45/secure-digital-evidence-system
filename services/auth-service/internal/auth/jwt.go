@@ -40,8 +40,8 @@ func GenerateServiceToken(service models.Service) (string, error) {
 		TokenType:   "service",
 		ServiceName: service.ServiceName,
 		RegisteredClaims: jwt.RegisteredClaims{
-			// Service token valid for 7 days.
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 24 * 7)),
+			// Service token valid for 1 hour.
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		},
 	}
 

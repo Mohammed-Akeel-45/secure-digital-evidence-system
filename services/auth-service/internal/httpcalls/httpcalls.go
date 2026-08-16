@@ -1,6 +1,7 @@
 package httpcalls
 
 import (
+	"auth-service-go/internal/auth"
 	"auth-service-go/internal/models"
 	"bytes"
 	"context"
@@ -9,11 +10,47 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
 type HTTPCaller struct {
-	ServiceToken string
+	ServiceToken   string
+	mu             sync.RWMutex
+	cachedToken    string
+	tokenExpiresAt time.Time
+}
+
+func (h *HTTPCaller) getToken() (string, error) {
+	if h.ServiceToken != "" {
+		return h.ServiceToken, nil
+	}
+
+	h.mu.RLock()
+	if h.cachedToken != "" && time.Now().Before(h.tokenExpiresAt.Add(-60*time.Second)) {
+		token := h.cachedToken
+		h.mu.RUnlock()
+		return token, nil
+	}
+	h.mu.RUnlock()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if h.cachedToken != "" && time.Now().Before(h.tokenExpiresAt.Add(-60*time.Second)) {
+		return h.cachedToken, nil
+	}
+
+	token, err := auth.GenerateServiceToken(models.Service{ServiceName: "auth_service"})
+	if err != nil {
+		return "", err
+	}
+
+	h.cachedToken = token
+	h.tokenExpiresAt = time.Now().Add(time.Hour)
+
+	return token, nil
 }
 
 func (h *HTTPCaller) ResolveCasePublicIDToInternalID(
@@ -36,9 +73,14 @@ func (h *HTTPCaller) ResolveCasePublicIDToInternalID(
 		return 0, err
 	}
 
+	token, err := h.getToken()
+	if err != nil {
+		return 0, err
+	}
+
 	req.Header.Set(
 		"Authorization",
-		"Bearer "+h.ServiceToken,
+		"Bearer "+token,
 	)
 
 	client := &http.Client{
@@ -90,9 +132,14 @@ func (h *HTTPCaller) ResolveCaseInternalIDToPublicID(
 		return "", err
 	}
 
+	token, err := h.getToken()
+	if err != nil {
+		return "", err
+	}
+
 	req.Header.Set(
 		"Authorization",
-		"Bearer "+h.ServiceToken,
+		"Bearer "+token,
 	)
 
 	client := &http.Client{
@@ -144,9 +191,14 @@ func (h *HTTPCaller) GetCaseDetails(
 		return nil, err
 	}
 
+	token, err := h.getToken()
+	if err != nil {
+		return nil, err
+	}
+
 	req.Header.Set(
 		"Authorization",
-		"Bearer "+h.ServiceToken,
+		"Bearer "+token,
 	)
 
 	client := &http.Client{
@@ -195,9 +247,14 @@ func (h *HTTPCaller) DeleteDepartmentCases(
 		return err
 	}
 
+	token, err := h.getToken()
+	if err != nil {
+		return err
+	}
+
 	req.Header.Set(
 		"Authorization",
-		"Bearer "+h.ServiceToken,
+		"Bearer "+token,
 	)
 
 	client := &http.Client{
@@ -239,9 +296,14 @@ func (h *HTTPCaller) GetDepartmentCases(
 		return nil, err
 	}
 
+	token, err := h.getToken()
+	if err != nil {
+		return nil, err
+	}
+
 	req.Header.Set(
 		"Authorization",
-		"Bearer "+h.ServiceToken,
+		"Bearer "+token,
 	)
 
 	client := &http.Client{
@@ -306,9 +368,14 @@ func (h *HTTPCaller) ResolveCaseInternalIDsToPublicIDs(
 		return nil, err
 	}
 
+	token, err := h.getToken()
+	if err != nil {
+		return nil, err
+	}
+
 	req.Header.Set(
 		"Authorization",
-		"Bearer "+h.ServiceToken,
+		"Bearer "+token,
 	)
 
 	client := &http.Client{
