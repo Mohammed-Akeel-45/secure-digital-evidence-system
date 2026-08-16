@@ -25,7 +25,8 @@ type AdminPublic struct {
 }
 
 type Service struct {
-	ServiceName string `json:"service_name"`
+	ServiceName   string `json:"service_name"`
+	ServiceSecret string `json:"service_secret"`
 }
 
 type Claims struct {

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
+	"strings"
 )
 
 func (h *AuthHandler) AdminRegister(w http.ResponseWriter, r *http.Request) {
@@ -141,6 +143,24 @@ func (h *AuthHandler) GetServiceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if creds.ServiceName == "" || creds.ServiceSecret == "" {
+		slog.WarnContext(ctx, "Missing service_name or service_secret in request")
+		http.Error(w, "service_name and service_secret are required", http.StatusBadRequest)
+		return
+	}
+
+	secretEnvName := "SERVICE_SECRET_" + strings.ToUpper(strings.ReplaceAll(creds.ServiceName, "-", "_"))
+	expectedSecret := os.Getenv(secretEnvName)
+	if expectedSecret == "" {
+		expectedSecret = os.Getenv("SERVICE_SECRET")
+	}
+
+	if expectedSecret == "" || creds.ServiceSecret != expectedSecret {
+		slog.WarnContext(ctx, "Unauthorized service token request: secret mismatch", "service_name", creds.ServiceName)
+		http.Error(w, "Invalid service credentials", http.StatusUnauthorized)
+		return
+	}
+
 	token, err := auth.GenerateServiceToken(creds)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to generate service token", "error", err, "service_name", creds.ServiceName)
@@ -148,5 +168,9 @@ func (h *AuthHandler) GetServiceToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]string{"service_name": creds.ServiceName, "service_token": token})
+	json.NewEncoder(w).Encode(map[string]any{
+		"service_name":  creds.ServiceName,
+		"service_token": token,
+		"expires_in":    3600,
+	})
 }
