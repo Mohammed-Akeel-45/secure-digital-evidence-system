@@ -97,19 +97,36 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Resolve user public_id (UUID) to internal bigint ID
+	var userInternalID int64
+	err = h.Store.DB.Get(&userInternalID,
+		`SELECT id FROM auth_schema.users WHERE public_id = $1`, userPublicID)
+	if err != nil {
+		log.Printf("Failed to resolve user internal ID: %v", err)
+		http.Error(w, `{"error":"user not found"}`, http.StatusBadRequest)
+		return
+	}
+
+	// Detect MIME type from file header
+	mimeType := fileHeader.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
 	// Insert into DB — capture the internal BIGINT ID for the audit service
 	var insertedID int64
 	err = h.Store.DB.QueryRow(
 		`INSERT INTO evidence
-		(case_id, file_name, file_size, storage_path, current_hash, uploaded_by)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		(case_id, file_name, mime_type, file_size, storage_path, current_hash, uploaded_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id`,
 		caseResp.ID,
 		fileHeader.Filename,
+		mimeType,
 		fileHeader.Size,
 		s3Key,
 		hash,
-		userPublicID,
+		userInternalID,
 	).Scan(&insertedID)
 
 	if err != nil {
