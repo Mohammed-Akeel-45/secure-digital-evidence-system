@@ -11,6 +11,10 @@ export default defineConfig({
         target: "http://sdes_auth:3001",
         changeOrigin: true,
       },
+      "/api/v1/audit": {
+        target: "http://sdes_audit:3002",
+        changeOrigin: true,
+      },
       "/api/v1/cases": {
         target: "http://sdes_case:3003",
         changeOrigin: true,
@@ -19,10 +23,13 @@ export default defineConfig({
         target: "http://sdes_evidence:3004",
         changeOrigin: true,
       },
-      "/api/v1/audit": {
-        target: "http://sdes_audit:3002",
+      "/evidence": {
+        target: "http://sdes_evidence:3004",
         changeOrigin: true,
       },
     },
   },
 });
+
+
+
