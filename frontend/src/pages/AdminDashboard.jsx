@@ -8,6 +8,9 @@ import { Departments } from '../components/admin/Departments';
 import { Roles } from '../components/admin/Roles';
 import { Members } from '../components/admin/Members';
 import { Audit } from '../components/admin/Audit';
+import { CustodyLogs } from '../components/admin/CustodyLogs';
+import { AuditLogDetails } from '../components/admin/AuditLogDetails';
+import { CustodyLogDetails } from '../components/admin/CustodyLogDetails';
 import { DepartmentDetails } from '../components/admin/DepartmentDetails';
 import { CaseDetails } from '../components/admin/CaseDetails';
 import { RoleDetails } from '../components/admin/RoleDetails';
@@ -20,9 +23,10 @@ const NAV = [
     { type: 'section', label: 'Organization' },
     { id: 'members', label: 'Members' },
     { id: 'departments', label: 'Departments' },
-    { type: 'section', label: 'Security' },
+    { type: 'section', label: 'Security & Audit' },
     { id: 'roles', label: 'Roles' },
-    { id: 'audit', label: 'Audit Log' },
+    { id: 'custody', label: 'Chain of Custody' },
+    { id: 'audit', label: 'Audit Logs' },
 ];
 
 export function AdminDashboard() {
@@ -38,6 +42,8 @@ export function AdminDashboard() {
     if (currentPage === 'case') activeNav = 'cases';
     if (currentPage === 'role') activeNav = 'roles';
     if (currentPage === 'user') activeNav = 'members';
+    if (currentPage === 'audit-log') activeNav = 'audit';
+    if (currentPage === 'custody-log') activeNav = 'custody';
 
     const refresh = async () => {
         try {
@@ -60,11 +66,14 @@ export function AdminDashboard() {
         departments: <Departments />,
         roles: <Roles cases={cases} />,
         members: <Members onRefresh={refresh} />,
+        custody: <CustodyLogs />,
         audit: <Audit />,
         department: <DepartmentDetails />,
         case: <CaseDetails />,
         role: <RoleDetails />,
-        user: <UserDetails onRefresh={refresh} />
+        user: <UserDetails onRefresh={refresh} />,
+        'audit-log': <AuditLogDetails />,
+        'custody-log': <CustodyLogDetails />
     };
 
     return (

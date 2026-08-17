@@ -2,12 +2,15 @@ import { useState, useEffect } from 'react';
 import { AppLayout } from '../components/AppLayout';
 import { getCases } from '../api/auth';
 import { useAuth } from '../context/AuthContext';
+import { CustodyLogs } from '../components/admin/CustodyLogs';
+import { Audit } from '../components/admin/Audit';
 
 const NAV = [
   { type: 'section', label: 'My Work' },
   { id: 'cases',    label: 'My Cases' },
   { id: 'evidence', label: 'Evidence' },
-  { type: 'section', label: 'Reports' },
+  { type: 'section', label: 'Reports & Integrity' },
+  { id: 'custody',  label: 'Chain of Custody' },
   { id: 'audit',    label: 'Audit Log' },
 ];
 
@@ -93,7 +96,8 @@ export function UserDashboard() {
   const pages = {
     cases:    <MyCases />,
     evidence: <Placeholder title="EVIDENCE" sub="EVIDENCE ASSIGNED TO YOUR CASES" />,
-    audit:    <Placeholder title="AUDIT LOG" sub="YOUR ACCESS AND ACTION HISTORY" />,
+    custody:  <CustodyLogs />,
+    audit:    <Audit />,
   };
 
   return (

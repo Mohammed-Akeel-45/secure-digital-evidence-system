@@ -61,22 +61,22 @@ func main() {
 	middleware.InitJWT()
 
 	// Upload evidence (multipart to S3)
-	router.Handle("/evidence",
+	router.Handle("/api/v1/evidence",
 		middleware.JWTMiddleware(http.HandlerFunc(h.CreateEvidence)),
 	).Methods("POST")
 
 	// List evidence by case_id query param
-	router.Handle("/evidence",
+	router.Handle("/api/v1/evidence",
 		middleware.JWTMiddleware(http.HandlerFunc(h.ListEvidence)),
 	).Methods("GET")
 
 	// Raw binary stream from S3
-	router.Handle("/evidence/{id}/file",
+	router.Handle("/api/v1/evidence/{id}/file",
 		middleware.JWTMiddleware(http.HandlerFunc(h.StreamEvidenceFile)),
 	).Methods("GET")
 
 	// Download evidence from S3 by public_id (with metadata)
-	router.Handle("/evidence/{id}",
+	router.Handle("/api/v1/evidence/{id}",
 		middleware.JWTMiddleware(http.HandlerFunc(h.GetEvidence)),
 	).Methods("GET")
 

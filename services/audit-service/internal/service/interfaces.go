@@ -6,5 +6,5 @@ import (
 )
 
 type FileFetcher interface {
-	GetFile(ctx context.Context, evidenceID string) (io.ReadCloser, error)
+	GetFile(ctx context.Context, evidenceID string, authToken string) (io.ReadCloser, error)
 }
