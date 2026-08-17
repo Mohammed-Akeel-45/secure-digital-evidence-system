@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 )
 
 type CaseResponse struct {
-	ID       int64  `json:"id,string"` // Handles ID from Node.js (string "5")
+	ID       int64  `json:"id"`
 	PublicID string `json:"public_id"`
 	Title    string `json:"title"`
 }
@@ -22,7 +23,11 @@ type CaseUserResponse struct {
 func getCaseServiceURL() string {
 	url := os.Getenv("CASE_SERVICE_URL")
 	if url == "" {
-		url = "http://case-service:3003/api/v1"
+		url = "http://sdes_case:3003"
+	}
+	url = strings.TrimSuffix(url, "/")
+	if !strings.HasSuffix(url, "/api/v1") {
+		url = url + "/api/v1"
 	}
 	return url
 }

@@ -1,6 +1,7 @@
 // Relative URLs — proxied via vite.config.js
 const AUTH_BASE = "/api/v1/auth";
 const CASE_BASE = "/api/v1/cases";
+const EVIDENCE_BASE = "/api/v1/evidence";
 
 async function request(url, options = {}) {
   const token = localStorage.getItem("sdes_token");
@@ -53,7 +54,14 @@ export async function registerAdmin({ name, email, password, orgName }) {
   });
 }
 
-export async function createMember({ name, email, password, org_role, department_id, department_role }) {
+export async function createMember({
+  name,
+  email,
+  password,
+  org_role,
+  department_id,
+  department_role,
+}) {
   return request(`${AUTH_BASE}/admin/create-user`, {
     method: "POST",
     body: JSON.stringify({
@@ -62,7 +70,7 @@ export async function createMember({ name, email, password, org_role, department
       password,
       org_role,
       department_id,
-      department_role
+      department_role,
     }),
   });
 }
@@ -213,12 +221,12 @@ export async function getCaseUsers(caseId) {
 }
 
 export async function getEvidence(caseId) {
-  return request(`/evidence?case_id=${caseId}`);
+  return request(`${EVIDENCE_BASE}?case_id=${caseId}`);
 }
 
 export async function uploadEvidence(formData) {
   const token = localStorage.getItem("sdes_token");
-  const res = await fetch(`/evidence`, {
+  const res = await fetch(`${EVIDENCE_BASE}`, {
     method: "POST",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -238,7 +246,7 @@ export async function uploadEvidence(formData) {
 
 export async function downloadEvidence(evidenceId) {
   const token = localStorage.getItem("sdes_token");
-  const res = await fetch(`/evidence/${evidenceId}`, {
+  const res = await fetch(`${EVIDENCE_BASE}/${evidenceId}`, {
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
