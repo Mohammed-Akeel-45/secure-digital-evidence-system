@@ -1,0 +1,37 @@
+DELETE FROM auth_schema.permissions
+WHERE name IN (
+    'USER_CREATE',
+    'USER_DELETE',
+    'USER_EDIT',
+    'USER_VIEW',
+
+    'EVIDENCE_CREATE',
+    'EVIDENCE_DELETE',
+    'EVIDENCE_VIEW',
+    'EVIDENCE_DOWNLOAD',
+    'EVIDENCE_VERIFY',
+    'EVIDENCE_ACCESS',
+
+    'CASE_CREATE',
+    'CASE_DELETE',
+    'CASE_EDIT',
+    'CASE_VIEW',
+    'CASE_ASSIGN',
+
+    'DEPARTMENT_CREATE',
+    'DEPARTMENT_DELETE',
+    'DEPARTMENT_EDIT',
+    'DEPARTMENT_VIEW',
+
+    'ROLE_CREATE',
+    'ROLE_DELETE',
+    'ROLE_EDIT',
+    'ROLE_ASSIGN',
+    'ROLE_REVOKE',
+
+    'PERMISSION_VIEW',
+
+    'ORG_MANAGE',
+
+    'LOG_VIEW'
+);
