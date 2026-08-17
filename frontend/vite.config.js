@@ -19,6 +19,10 @@ export default defineConfig({
         target: "http://sdes_evidence:3004",
         changeOrigin: true,
       },
+      "/api/v1/audit": {
+        target: "http://sdes_audit:3002",
+        changeOrigin: true,
+      },
     },
   },
 });

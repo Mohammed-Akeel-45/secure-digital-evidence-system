@@ -1,6 +1,8 @@
 // Relative URLs — proxied via vite.config.js
 const AUTH_BASE = "/api/v1/auth";
 const CASE_BASE = "/api/v1/cases";
+const EVIDENCE_BASE = "/api/v1/evidence";
+const AUDIT_BASE = "/api/v1/audit";
 
 async function request(url, options = {}) {
   const token = localStorage.getItem("sdes_token");
@@ -53,7 +55,14 @@ export async function registerAdmin({ name, email, password, orgName }) {
   });
 }
 
-export async function createMember({ name, email, password, org_role, department_id, department_role }) {
+export async function createMember({
+  name,
+  email,
+  password,
+  org_role,
+  department_id,
+  department_role,
+}) {
   return request(`${AUTH_BASE}/admin/create-user`, {
     method: "POST",
     body: JSON.stringify({
@@ -62,7 +71,7 @@ export async function createMember({ name, email, password, org_role, department
       password,
       org_role,
       department_id,
-      department_role
+      department_role,
     }),
   });
 }
@@ -213,12 +222,12 @@ export async function getCaseUsers(caseId) {
 }
 
 export async function getEvidence(caseId) {
-  return request(`/evidence?case_id=${caseId}`);
+  return request(`${EVIDENCE_BASE}?case_id=${caseId}`);
 }
 
 export async function uploadEvidence(formData) {
   const token = localStorage.getItem("sdes_token");
-  const res = await fetch(`/evidence`, {
+  const res = await fetch(`${EVIDENCE_BASE}`, {
     method: "POST",
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -238,7 +247,7 @@ export async function uploadEvidence(formData) {
 
 export async function downloadEvidence(evidenceId) {
   const token = localStorage.getItem("sdes_token");
-  const res = await fetch(`/evidence/${evidenceId}`, {
+  const res = await fetch(`${EVIDENCE_BASE}/${evidenceId}`, {
     headers: {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
@@ -247,6 +256,34 @@ export async function downloadEvidence(evidenceId) {
     throw new Error("Download failed");
   }
   return res.blob();
+}
+
+export async function verifyEvidence(evidenceId) {
+  return request(`${AUDIT_BASE}/evidence/${evidenceId}/verify`);
+}
+
+export async function getCustodyLogs(params = {}) {
+  const cleanParams = Object.fromEntries(
+    Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== "")
+  );
+  const query = new URLSearchParams(cleanParams).toString();
+  return request(`${AUDIT_BASE}/custody-logs${query ? `?${query}` : ""}`);
+}
+
+export async function getCustodyLogById(id) {
+  return request(`${AUDIT_BASE}/custody-logs/${id}`);
+}
+
+export async function getAuditLogs(params = {}) {
+  const cleanParams = Object.fromEntries(
+    Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== "")
+  );
+  const query = new URLSearchParams(cleanParams).toString();
+  return request(`${AUDIT_BASE}/logs${query ? `?${query}` : ""}`);
+}
+
+export async function getAuditLogById(id) {
+  return request(`${AUDIT_BASE}/logs/${id}`);
 }
 
 export async function getUserDetails(userId) {

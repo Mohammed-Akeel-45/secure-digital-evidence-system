@@ -10,19 +10,19 @@ import (
 	"time"
 )
 
-// AuditRegistrationRequest 
+// AuditRegistrationRequest
 type AuditRegistrationRequest struct {
-	EvidenceID       int64                  `json:"evidence_id"`
-	EvidencePublicID string                 `json:"evidence_public_id"`
-	Algorithm        string                 `json:"algorithm"`
-	FileHash         string                 `json:"file_hash"`
-	CaseID           string                 `json:"case_id"`
-	UserID           string                 `json:"user_id"`
-	ActionType       int                    `json:"action_type"`
-	Remarks          string                 `json:"remarks"`
-	ActionMetadata   map[string]interface{} `json:"action_metadata"`
-	ServiceName      string                 `json:"service_name"`
-	IPAddress        string                 `json:"ip_address"`
+	EvidenceID       int64  `json:"evidence_id"`
+	EvidencePublicID string `json:"evidence_public_id"`
+	Algorithm        string `json:"algorithm"`
+	FileHash         string `json:"file_hash"`
+	CaseID           int64  `json:"case_id"`
+	UserID           int64  `json:"user_id"`
+	Action           string `json:"action"`
+	Remarks          string `json:"remarks"`
+	ActionMetadata   string `json:"action_metadata"`
+	ServiceName      string `json:"service_name"`
+	IPAddress        string `json:"ip_address"`
 }
 
 type AuditClient struct {
@@ -31,8 +31,12 @@ type AuditClient struct {
 }
 
 func NewAuditClient() *AuditClient {
+	url := os.Getenv("AUDIT_SERVICE_URL")
+	if url == "" {
+		url = "http://sdes_audit:3002"
+	}
 	return &AuditClient{
-		BaseURL: os.Getenv("AUDIT_SERVICE_URL"),
+		BaseURL: url,
 		Client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -45,7 +49,7 @@ func (c *AuditClient) RegisterAudit(ctx context.Context, req AuditRegistrationRe
 		return fmt.Errorf("AUDIT_SERVICE_URL not configured")
 	}
 
-	url := fmt.Sprintf("%s/api/v1/evidence/register", c.BaseURL)
+	url := fmt.Sprintf("%s/api/v1/audit/evidence/register", c.BaseURL)
 	jsonData, err := json.Marshal(req)
 	if err != nil {
 		return err

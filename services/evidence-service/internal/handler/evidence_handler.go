@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 
@@ -115,11 +116,12 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 
 	// Insert into DB — capture the internal BIGINT ID for the audit service
 	var insertedID int64
+	var insertedPublicID string
 	err = h.Store.DB.QueryRow(
 		`INSERT INTO evidence
 		(case_id, file_name, mime_type, file_size, storage_path, current_hash, uploaded_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id`,
+		RETURNING id, public_id`,
 		caseResp.ID,
 		fileHeader.Filename,
 		mimeType,
@@ -127,7 +129,7 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 		s3Key,
 		hash,
 		userInternalID,
-	).Scan(&insertedID)
+	).Scan(&insertedID, &insertedPublicID)
 
 	if err != nil {
 		log.Printf("DB insert error: %v", err)
@@ -136,19 +138,49 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 	}
 
 	// 5. Register with Audit Service (Audit flow)
-	// We do this in a separate goroutine or handle errors non-fatally to avoid blocking the user
+	var userName string
+	_ = h.Store.DB.Get(&userName, `SELECT name FROM auth_schema.users WHERE id = $1`, userInternalID)
+	if userName == "" {
+		userName = "User"
+	}
+
+	metadata := map[string]any{
+		"file_name":      fileHeader.Filename,
+		"file_size":      fileHeader.Size,
+		"case_title":     caseResp.Title,
+		"case_public_id": caseResp.PublicID,
+		"user_name":      userName,
+		"user_public_id": userPublicID,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	metadataStr := string(metadataJSON)
+	clientIP := r.Header.Get("X-Forwarded-For")
+	if clientIP == "" {
+		clientIP = r.Header.Get("X-Real-IP")
+	}
+	if clientIP == "" {
+		clientIP = r.RemoteAddr
+	}
+	if host, _, err := net.SplitHostPort(clientIP); err == nil {
+		clientIP = host
+	}
+	if clientIP == "" {
+		clientIP = "127.0.0.1"
+	}
+
 	go func() {
 		auditReq := services.AuditRegistrationRequest{
 			EvidenceID:       insertedID,
-			EvidencePublicID: "",
+			EvidencePublicID: insertedPublicID,
 			Algorithm:        "SHA256",
 			FileHash:         hash,
-			CaseID:           casePublicID,
-			UserID:           userPublicID,
-			ActionType:       1, // 1 = UPLOAD
-			Remarks:          "Initial upload registered for AuditTrail",
+			CaseID:           caseResp.ID,
+			UserID:           userInternalID,
+			Action:           "UPLOAD",
+			ActionMetadata:   metadataStr,
+			Remarks:          fmt.Sprintf("Uploaded '%s' to case '%s' by %s", fileHeader.Filename, caseResp.Title, userName),
 			ServiceName:      "evidence-service",
-			IPAddress:        r.RemoteAddr,
+			IPAddress:        clientIP,
 		}
 
 		h.Store.DB.Get(&auditReq.EvidencePublicID, "SELECT public_id FROM evidence WHERE id = $1", insertedID)

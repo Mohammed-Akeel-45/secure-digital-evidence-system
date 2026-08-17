@@ -32,7 +32,7 @@ func (r *evidenceRepo) q(ctx context.Context) store.PgxQuerier {
 // Inserts a new evidence hash into the database.
 func (r *evidenceRepo) InsertEvidenceHash(ctx context.Context, e store.EvidenceDetails) error {
 	query := `
-			INSERT INTO integrity_schema.evidence_hashes (evidence_id, evidence_public_ic, file_hash, algorithm)
+			INSERT INTO integrity_schema.evidence_hashes (evidence_id, evidence_public_id, file_hash, algorithm)
 			VALUES (@evidenceID, @evidencePublicID, @fileHash, @algorithm)
 		`
 
@@ -72,7 +72,8 @@ func (r *evidenceRepo) GetEvidenceHash(ctx context.Context, evidenceID string) (
 	query := `
 		SELECT file_hash, algorithm
 		FROM integrity_schema.evidence_hashes
-		WHERE evidence_id = @evidenceID
+		WHERE evidence_public_id::text = @evidenceID OR evidence_id::text = @evidenceID
+		LIMIT 1
 	`
 
 	args := pgx.NamedArgs{

@@ -36,4 +36,9 @@ var (
 		Error:    errors.New("file not found"),
 		HTTPCode: 404,
 	}
+	ErrActionNotFound = CustomError{
+		Code:     "",
+		Error:    errors.New("action not found"),
+		HTTPCode: 400,
+	}
 )
