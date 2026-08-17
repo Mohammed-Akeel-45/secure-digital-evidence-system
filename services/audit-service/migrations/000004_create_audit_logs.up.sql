@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS integrity_schema.audit_logs (
     action_type int REFERENCES integrity_schema.actions(id) NOT NULL,
     service_name VARCHAR(60) NOT NULL,
     ip_address INET NOT NULL,
-    status integrity_schema.integrity_status NOT NULL,
+    status integrity_schema.integrity_status NOT NULL DEFAULT 'unchanged',
 
     details JSONB,
 

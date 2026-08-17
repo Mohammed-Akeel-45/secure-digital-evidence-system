@@ -12,8 +12,16 @@ type EvidenceRepo interface {
 
 type CustodyRepo interface {
 	InsertCustodyLog(ctx context.Context, c store.CustodyLog) error
+	ListCustodyLogs(ctx context.Context, evidenceID string, caseID string, limit int, offset int) ([]store.CustodyLogDTO, error)
+	GetCustodyLogByID(ctx context.Context, id string) (*store.CustodyLogDTO, error)
 }
 
 type AuditRepo interface {
 	InsertAuditLog(ctx context.Context, a store.AuditLog) error
+	ListAuditLogs(ctx context.Context, evidenceID string, caseID string, limit int, offset int) ([]store.AuditLogDTO, error)
+	GetAuditLogByID(ctx context.Context, id string) (*store.AuditLogDTO, error)
+}
+
+type ActionRepo interface {
+	GetActionIDByName(ctx context.Context, name string) (int32, error)
 }

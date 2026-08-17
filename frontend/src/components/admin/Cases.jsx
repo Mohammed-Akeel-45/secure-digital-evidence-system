@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCaseUsers, getEvidence, uploadEvidence, downloadEvidence } from '../../api/auth';
-import { Row, Badge, Empty, SectionTitle, computeSHA256 } from './AdminCommon';
+import { getCaseUsers, getEvidence, uploadEvidence, downloadEvidence, verifyEvidence } from '../../api/auth';
+import { Row, Badge, Empty, SectionTitle, computeSHA256, formatFileSize } from './AdminCommon';
 import { Field, ErrorBanner, SuccessBanner } from '../auth/FormParts';
 
 const EVIDENCE_TYPES = ['Document', 'Image', 'Video', 'Audio', 'Archive', 'Other'];
@@ -81,14 +81,25 @@ export function EvidenceSection({ caseId }) {
         } finally { setUploading(false); }
     };
 
-    const recheck = async (id) => {
+    const recheck = async (id, publicId) => {
         setVerifying(id);
-        await new Promise(r => setTimeout(r, 1000));
-        setEvidence(ev => ev.map(e => e.id === id
-            ? { ...e, integrityStatus: 'VERIFIED', lastChecked: new Date().toISOString() }
-            : e
-        ));
-        setVerifying(null);
+        setError('');
+        try {
+            const res = await verifyEvidence(publicId || id);
+            setEvidence(ev => ev.map(e => e.id === id
+                ? { ...e, integrityStatus: res.status === 'VALID' ? 'VERIFIED' : 'TAMPERED', lastChecked: new Date().toISOString() }
+                : e
+            ));
+            if (res.status === 'VALID') {
+                setSuccess('EVIDENCE INTEGRITY VERIFIED (SHA256 MATCH)');
+            } else {
+                setError(`EVIDENCE TAMPERED: ${res.message || 'HASH MISMATCH DETECTED'}`);
+            }
+        } catch (err) {
+            setError('VERIFICATION FAILED: ' + JSON.parse(err.message).message || err.message.toUpperCase());
+        } finally {
+            setVerifying(null);
+        }
     };
 
     const handleDownload = async (ev) => {
@@ -129,7 +140,7 @@ export function EvidenceSection({ caseId }) {
                                     <div style={{ flex: 1, minWidth: 0 }}>
                                         <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.file_name}</div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{(ev.file_size / 1024).toFixed(1)} KB</span>
+                                            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{formatFileSize(ev.file_size)}</span>
                                             <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{new Date(ev.uploaded_at).toLocaleDateString('en-IN')}</span>
                                             <Badge status={ev.integrityStatus || 'VERIFIED'} />
                                         </div>
@@ -143,7 +154,7 @@ export function EvidenceSection({ caseId }) {
                                         <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => handleDownload(ev)}>
                                             Download
                                         </button>
-                                        <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => recheck(ev.id)} disabled={verifying === ev.id}>
+                                        <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => recheck(ev.id, ev.public_id)} disabled={verifying === ev.id}>
                                             {verifying === ev.id ? 'Checking...' : 'Verify'}
                                         </button>
                                     </div>

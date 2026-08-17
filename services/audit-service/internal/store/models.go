@@ -1,5 +1,11 @@
 package store
 
+import (
+	"crypto/sha256"
+	"fmt"
+	"time"
+)
+
 type EvidenceDetails struct {
 	EvidenceID       int64
 	EvidencePublicID string
@@ -19,7 +25,7 @@ type EvidenceRegistrationDetails struct {
 	FileHash         string `json:"file_hash" binding:"required"`
 	CaseID           int64  `json:"case_id" binding:"required"`
 	UserID           int64  `json:"user_id" binding:"required"`
-	ActionType       int32  `json:"action_type" binding:"required"`
+	Action           string `json:"action" binding:"required"`
 	Remarks          string `json:"remarks" binding:"required"`
 	// jsonb data
 	ActionMetadata string `json:"action_metadata" binding:"required"`
@@ -37,6 +43,23 @@ type CustodyLog struct {
 	ActionMetadata string
 }
 
+type CustodyLogDTO struct {
+	PublicID         string         `json:"public_id"`
+	EvidencePublicID string         `json:"evidence_public_id"`
+	EvidenceName     string         `json:"evidence_name,omitempty"`
+	CasePublicID     string         `json:"case_public_id,omitempty"`
+	CaseTitle        string         `json:"case_title,omitempty"`
+	UserPublicID     string         `json:"user_public_id,omitempty"`
+	UserName         string         `json:"user_name,omitempty"`
+	EvidenceID       int64          `json:"-"`
+	CaseID           int64          `json:"-"`
+	UserID           int64          `json:"-"`
+	Action           string         `json:"action"`
+	ActionMetadata   map[string]any `json:"action_metadata"`
+	Remarks          string         `json:"remarks"`
+	Timestamp        time.Time      `json:"timestamp"`
+}
+
 type AuditLog struct {
 	UserID      int64
 	CaseID      int64
@@ -44,28 +67,64 @@ type AuditLog struct {
 	ActionType  int32
 	ServiceName string
 	IPAddress   string
+	RequestID   string
 }
 
-func (d *EvidenceRegistrationDetails) ToCustodyLog() CustodyLog {
+type AuditLogDTO struct {
+	PublicID         string         `json:"public_id"`
+	EvidencePublicID string         `json:"evidence_public_id"`
+	EvidenceName     string         `json:"evidence_name,omitempty"`
+	CasePublicID     string         `json:"case_public_id,omitempty"`
+	CaseTitle        string         `json:"case_title,omitempty"`
+	UserPublicID     string         `json:"user_public_id,omitempty"`
+	UserName         string         `json:"user_name,omitempty"`
+	EvidenceID       int64          `json:"-"`
+	CaseID           int64          `json:"-"`
+	UserID           int64          `json:"-"`
+	RequestID        string         `json:"request_id"`
+	PreviousHash     string         `json:"previous_hash"`
+	CurrentHash      string         `json:"current_hash"`
+	Action           string         `json:"action"`
+	ServiceName      string         `json:"service_name"`
+	IPAddress        string         `json:"ip_address"`
+	Status           string         `json:"status"`
+	Details          map[string]any `json:"details,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
+}
+
+// GenerateRequestID generates a deterministic UUIDv5-style identifier for idempotent request tracking.
+func GenerateRequestID(evidenceID int64, fileHash string, actionID int32, userID int64, caseID int64) string {
+	data := fmt.Sprintf("%d:%s:%d:%d:%d", evidenceID, fileHash, actionID, userID, caseID)
+	hash := sha256.Sum256([]byte(data))
+	// Set RFC 4122 version 5 (bits 4-7 = 0101) and variant (bits 6-7 = 10)
+	hash[6] = (hash[6] & 0x0f) | 0x50
+	hash[8] = (hash[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%08x-%04x-%04x-%02x%02x-%012x",
+		hash[0:4], hash[4:6], hash[6:8], hash[8], hash[9], hash[10:16])
+}
+
+func (d *EvidenceRegistrationDetails) ToCustodyLog(actionID int32) CustodyLog {
 	return CustodyLog{
 		EvidenceID: d.EvidenceID,
 		CaseID:     d.CaseID,
 		UserID:     d.UserID,
-		ActionType: d.ActionType,
+		ActionType: actionID,
 		Remarks:    d.Remarks,
 		// jsonb data
 		ActionMetadata: d.ActionMetadata,
 	}
 }
 
-func (d *EvidenceRegistrationDetails) ToAuditLog() AuditLog {
+func (d *EvidenceRegistrationDetails) ToAuditLog(actionID int32) AuditLog {
+	requestID := GenerateRequestID(d.EvidenceID, d.FileHash, actionID, d.UserID, d.CaseID)
 	return AuditLog{
 		UserID:      d.UserID,
 		CaseID:      d.CaseID,
 		EvidenceId:  d.EvidenceID,
-		ActionType:  d.ActionType,
+		ActionType:  actionID,
 		ServiceName: d.ServiceName,
 		IPAddress:   d.IPAddress,
+		RequestID:   requestID,
 	}
 }
 

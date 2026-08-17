@@ -2,6 +2,7 @@
 const AUTH_BASE = "/api/v1/auth";
 const CASE_BASE = "/api/v1/cases";
 const EVIDENCE_BASE = "/api/v1/evidence";
+const AUDIT_BASE = "/api/v1/audit";
 
 async function request(url, options = {}) {
   const token = localStorage.getItem("sdes_token");
@@ -255,6 +256,34 @@ export async function downloadEvidence(evidenceId) {
     throw new Error("Download failed");
   }
   return res.blob();
+}
+
+export async function verifyEvidence(evidenceId) {
+  return request(`${AUDIT_BASE}/evidence/${evidenceId}/verify`);
+}
+
+export async function getCustodyLogs(params = {}) {
+  const cleanParams = Object.fromEntries(
+    Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== "")
+  );
+  const query = new URLSearchParams(cleanParams).toString();
+  return request(`${AUDIT_BASE}/custody-logs${query ? `?${query}` : ""}`);
+}
+
+export async function getCustodyLogById(id) {
+  return request(`${AUDIT_BASE}/custody-logs/${id}`);
+}
+
+export async function getAuditLogs(params = {}) {
+  const cleanParams = Object.fromEntries(
+    Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== "")
+  );
+  const query = new URLSearchParams(cleanParams).toString();
+  return request(`${AUDIT_BASE}/logs${query ? `?${query}` : ""}`);
+}
+
+export async function getAuditLogById(id) {
+  return request(`${AUDIT_BASE}/logs/${id}`);
 }
 
 export async function getUserDetails(userId) {

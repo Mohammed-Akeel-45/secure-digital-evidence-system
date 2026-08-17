@@ -31,8 +31,14 @@ const STATUS_COLORS = {
     ARCHIVED: { bg: 'rgba(255,255,255,0.04)', color: '#555' },
     PENDING: { bg: 'rgba(255,170,0,0.1)', color: '#ffaa00' },
     VERIFIED: { bg: 'rgba(0,200,120,0.1)', color: '#00c878' },
+    VALID: { bg: 'rgba(0,200,120,0.1)', color: '#00c878' },
+    UNCHANGED: { bg: 'rgba(0,200,120,0.1)', color: '#00c878' },
     FLAGGED: { bg: 'rgba(255,60,60,0.1)', color: '#ff4444' },
     TAMPERED: { bg: 'rgba(255,60,60,0.15)', color: '#ff2222' },
+    UPLOAD: { bg: 'rgba(0,180,255,0.1)', color: '#00b4ff' },
+    VIEW: { bg: 'rgba(180,180,180,0.1)', color: '#b4b4b4' },
+    VERIFY: { bg: 'rgba(160,100,255,0.1)', color: '#b084ff' },
+    DOWNLOAD: { bg: 'rgba(255,170,0,0.1)', color: '#ffaa00' },
 };
 
 export function Badge({ status }) {
@@ -58,4 +64,14 @@ export async function computeSHA256(file) {
     const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function formatFileSize(bytes) {
+    if (bytes === undefined || bytes === null || isNaN(bytes) || bytes === '') return '-';
+    const num = Number(bytes);
+    if (num === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(num) / Math.log(k));
+    return `${parseFloat((num / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
