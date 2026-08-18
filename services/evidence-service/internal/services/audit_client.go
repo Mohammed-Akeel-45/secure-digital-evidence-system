@@ -33,7 +33,7 @@ type AuditClient struct {
 func NewAuditClient() *AuditClient {
 	url := os.Getenv("AUDIT_SERVICE_URL")
 	if url == "" {
-		url = "http://sdes_audit:3002"
+		url = "http://sdes_nginx:80"
 	}
 	return &AuditClient{
 		BaseURL: url,

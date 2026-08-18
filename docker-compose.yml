@@ -1,4 +1,19 @@
 services:
+  nginx:
+    image: nginx:alpine
+    container_name: sdes_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - auth-service-go
+      - audit-service-go
+      - case-service
+      - evidence-service-go
+    networks:
+      - sdes_network
   frontend:
     build: ./frontend/
     container_name: sdes_frontend
@@ -6,7 +21,7 @@ services:
     ports:
       - 5173:5173
     depends_on:
-      - auth-service-go
+      - nginx
     volumes:
       - ./frontend/:/app
       - /app/node_modules
@@ -16,8 +31,6 @@ services:
     build: ./services/auth-service/
     container_name: sdes_auth
     restart: unless-stopped
-    ports:
-      - 3001:3001
     depends_on:
       - db
     volumes:
@@ -30,8 +43,6 @@ services:
     build: ./services/audit-service/
     container_name: sdes_audit
     restart: unless-stopped
-    ports:
-      - 3002:3002
     depends_on:
       - db
     volumes:
@@ -44,8 +55,6 @@ services:
     build: ./services/case-service/
     container_name: sdes_case
     restart: unless-stopped
-    ports:
-      - "3003:3003"
     depends_on:
       - db
     volumes:
@@ -57,8 +66,6 @@ services:
     build: ./services/evidence-service/
     container_name: sdes_evidence
     restart: unless-stopped
-    ports:
-      - 3004:3004
     depends_on:
       - db
     volumes:
