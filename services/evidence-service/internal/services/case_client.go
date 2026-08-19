@@ -23,7 +23,7 @@ type CaseUserResponse struct {
 func getCaseServiceURL() string {
 	url := os.Getenv("CASE_SERVICE_URL")
 	if url == "" {
-		url = "http://sdes_case:3003"
+		url = "http://sdes_nginx:80"
 	}
 	url = strings.TrimSuffix(url, "/")
 	if !strings.HasSuffix(url, "/api/v1") {

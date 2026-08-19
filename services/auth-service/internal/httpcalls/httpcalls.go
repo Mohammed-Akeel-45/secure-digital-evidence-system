@@ -59,7 +59,7 @@ func (h *HTTPCaller) ResolveCasePublicIDToInternalID(
 ) (int64, error) {
 
 	url := fmt.Sprintf(
-		"http://sdes_case:3003/api/v1/internal/cases/resolve/%s",
+		"http://sdes_nginx:80/api/v1/internal/cases/resolve/%s",
 		publicID,
 	)
 
@@ -118,7 +118,7 @@ func (h *HTTPCaller) ResolveCaseInternalIDToPublicID(
 ) (string, error) {
 
 	url := fmt.Sprintf(
-		"http://sdes_case:3003/api/v1/internal/cases/resolve-internal-id/%d",
+		"http://sdes_nginx:80/api/v1/internal/cases/resolve-internal-id/%d",
 		InternalID,
 	)
 
@@ -177,7 +177,7 @@ func (h *HTTPCaller) GetCaseDetails(
 ) (*models.CaseDetails, error) {
 
 	url := fmt.Sprintf(
-		"http://sdes_case:3003/api/v1/cases/%s",
+		"http://sdes_nginx:80/api/v1/cases/%s",
 		publicID,
 	)
 
@@ -234,7 +234,7 @@ func (h *HTTPCaller) DeleteDepartmentCases(
 	departmentID int64,
 ) error {
 	url := fmt.Sprintf(
-		"http://sdes_case:3003/api/v1/internal/cases/delete-department-cases?org_id=%d&department_id=%d", orgID, departmentID,
+		"http://sdes_nginx:80/api/v1/internal/cases/delete-department-cases?org_id=%d&department_id=%d", orgID, departmentID,
 	)
 
 	req, err := http.NewRequestWithContext(
@@ -283,7 +283,7 @@ func (h *HTTPCaller) GetDepartmentCases(
 	departmentID int64,
 ) ([]int64, error) {
 	url := fmt.Sprintf(
-		"http://sdes_case:3003/api/v1/internal/cases/get-department-cases/%d", departmentID,
+		"http://sdes_nginx:80/api/v1/internal/cases/get-department-cases/%d", departmentID,
 	)
 
 	req, err := http.NewRequestWithContext(
@@ -354,7 +354,7 @@ func (h *HTTPCaller) ResolveCaseInternalIDsToPublicIDs(
 	}
 
 	url := fmt.Sprintf(
-		"http://sdes_case:3003/api/v1/internal/cases/resolve-multiple-internal-ids?ids=%s",
+		"http://sdes_nginx:80/api/v1/internal/cases/resolve-multiple-internal-ids?ids=%s",
 		builder.String(),
 	)
 
