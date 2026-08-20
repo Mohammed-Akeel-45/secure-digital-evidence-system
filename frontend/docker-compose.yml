@@ -16,9 +16,12 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"   # adjust to match your actual backend port
+      - "8000:8000"   
     networks:
       - app-network
+    environment:
+      DB_CONN_STR: "host=db port=5432 user=evidence_user password=evidence_pass dbname=evidence_db sslmode=disable search_path=auth_schema"
+      DB_STR_FOR_MIGRATION: "postgres://evidence_user:evidence_pass@db:5432/evidence_db?sslmode=disable&search_path=auth_schema"
 
   nginx:
     image: nginx:alpine
