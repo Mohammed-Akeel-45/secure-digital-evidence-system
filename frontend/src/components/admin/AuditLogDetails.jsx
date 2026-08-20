@@ -3,10 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getAuditLogById } from '../../api/auth';
 import { SectionTitle, Empty, Badge, formatFileSize } from './AdminCommon';
 import { ErrorBanner } from '../auth/FormParts';
+import { useAuth } from '../../context/AuthContext';
 
 export function AuditLogDetails() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { isAdmin } = useAuth();
+    const backUrl = isAdmin ? '/admin/audit' : '/dashboard/audit';
 
     const [logData, setLogData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -52,7 +55,7 @@ export function AuditLogDetails() {
             <div className="animate-slide">
                 <div className="page-title">Audit Record Details</div>
                 <ErrorBanner message={error || 'Audit record not found'} />
-                <button className="btn" onClick={() => navigate('/admin/audit')} style={{ marginTop: 12 }}>
+                <button className="btn" onClick={() => navigate(backUrl)} style={{ marginTop: 12 }}>
                     ← Back to Audit Logs
                 </button>
             </div>
@@ -65,7 +68,7 @@ export function AuditLogDetails() {
         <div className="animate-slide">
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <button className="btn" onClick={() => navigate('/admin/audit')} style={{ padding: '6px 12px', fontSize: 11 }}>
+                <button className="btn" onClick={() => navigate(backUrl)} style={{ padding: '6px 12px', fontSize: 11 }}>
                     ← Back
                 </button>
                 <div className="page-title" style={{ margin: 0 }}>Audit Record</div>

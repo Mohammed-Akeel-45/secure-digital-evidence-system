@@ -5,7 +5,7 @@ import { SectionTitle, Empty, Row } from './AdminCommon';
 import { Field, ErrorBanner, SuccessBanner } from '../auth/FormParts';
 import { confirmAction } from './ConfirmDialog';
 
-export function Roles({ cases }) {
+export function Roles({ cases = [] }) {
     const navigate = useNavigate();
     const [roles, setRoles] = useState([]);
     const [rolesLoading, setRolesLoading] = useState(true);

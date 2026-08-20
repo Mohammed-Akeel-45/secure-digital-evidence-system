@@ -1,24 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getCustodyLogs } from '../../api/auth';
 import { Row, Badge, Empty, SectionTitle, StatCard, formatFileSize } from './AdminCommon';
 
 export function CustodyLogs() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const urlEvidenceId = searchParams.get('evidence_id') || '';
+
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [searchEvidence, setSearchEvidence] = useState('');
+    const [searchEvidence, setSearchEvidence] = useState(urlEvidenceId);
     const [filterAction, setFilterAction] = useState('ALL');
     const [expandedLog, setExpandedLog] = useState(null);
 
-    const fetchLogs = async () => {
+    const fetchLogs = async (overrideSearch) => {
         setLoading(true);
         setError('');
         try {
             const params = {};
-            if (searchEvidence.trim()) {
-                params.evidence_id = searchEvidence.trim();
+            const queryVal = overrideSearch !== undefined ? overrideSearch : searchEvidence;
+            if (queryVal && queryVal.trim()) {
+                params.evidence_id = queryVal.trim();
             }
             const data = await getCustodyLogs(params);
             setLogs(data || []);
@@ -31,8 +35,13 @@ export function CustodyLogs() {
     };
 
     useEffect(() => {
-        fetchLogs();
-    }, []);
+        if (urlEvidenceId) {
+            setSearchEvidence(urlEvidenceId);
+            fetchLogs(urlEvidenceId);
+        } else {
+            fetchLogs();
+        }
+    }, [urlEvidenceId]);
 
     const filteredLogs = logs.filter(log => {
         if (filterAction !== 'ALL' && log.action !== filterAction) return false;

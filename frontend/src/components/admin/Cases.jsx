@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCaseUsers, getEvidence, uploadEvidence, downloadEvidence, verifyEvidence } from '../../api/auth';
-import { Row, Badge, Empty, SectionTitle, computeSHA256, formatFileSize } from './AdminCommon';
+import { getCaseUsers, getEvidence, uploadEvidence, downloadEvidence, verifyEvidence, createCase, getOrgDepartments } from '../../api/auth';
+import { Row, Badge, Empty, SectionTitle, computeSHA256, formatFileSize, StatCard } from './AdminCommon';
 import { Field, ErrorBanner, SuccessBanner } from '../auth/FormParts';
 
 const EVIDENCE_TYPES = ['Document', 'Image', 'Video', 'Audio', 'Archive', 'Other'];
@@ -216,34 +216,229 @@ export function EvidenceSection({ caseId }) {
     );
 }
 
-export function Cases({ cases, onRefresh }) {
+export function Cases({ cases = [], onRefresh }) {
     const navigate = useNavigate();
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState('ALL');
+    const [departments, setDepartments] = useState([]);
+    
+    // Create Case Form State
+    const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dept_id: '' });
+    const [creating, setCreating] = useState(false);
+    const [createError, setCreateError] = useState('');
+    const [createSuccess, setCreateSuccess] = useState('');
+
+    useEffect(() => {
+        getOrgDepartments()
+            .then(res => {
+                const list = Array.isArray(res) ? res : [];
+                setDepartments(list);
+                if (list.length > 0 && !form.dept_id) {
+                    setForm(f => ({ ...f, dept_id: list[0].public_id }));
+                }
+            })
+            .catch(() => setDepartments([]));
+    }, []);
+
+    const handleCreate = async (e) => {
+        e.preventDefault();
+        if (!form.title.trim()) {
+            setCreateError('CASE TITLE IS REQUIRED');
+            return;
+        }
+        if (!form.dept_id) {
+            setCreateError('PLEASE SELECT A DEPARTMENT');
+            return;
+        }
+        setCreating(true);
+        setCreateError('');
+        setCreateSuccess('');
+        try {
+            await createCase(form);
+            setCreateSuccess(`CASE "${form.title}" CREATED SUCCESSFULLY`);
+            setForm({ title: '', description: '', priority: 'medium', dept_id: departments[0]?.public_id || '' });
+            if (onRefresh) onRefresh();
+        } catch (err) {
+            setCreateError(err.message?.toUpperCase() || 'FAILED TO CREATE CASE');
+        } finally {
+            setCreating(false);
+        }
+    };
+
+    const filteredCases = cases.filter(c => {
+        if (statusFilter !== 'ALL' && c.status?.toUpperCase() !== statusFilter) return false;
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            const titleMatch = c.title?.toLowerCase().includes(term);
+            const idMatch = c.public_id?.toLowerCase().includes(term);
+            const descMatch = c.description?.toLowerCase().includes(term);
+            if (!titleMatch && !idMatch && !descMatch) return false;
+        }
+        return true;
+    });
 
     return (
         <div className="animate-slide">
-            <div className="page-title">Case Management</div>
-            <div className="page-sub">View and manage investigation cases and evidence</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 16 }}>
-                <div className="card">
-                    <SectionTitle>All Cases ({cases.length})</SectionTitle>
-                    {cases.length === 0
-                        ? <Empty>No cases yet.</Empty>
-                        : cases.map(c => (
-                            <div key={c.public_id} style={{ borderBottom: '1px solid var(--rule2)', paddingBottom: 12 }}>
-                                <Row onClick={() => navigate(`/admin/case/${c.public_id}`)}>
-                                    <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink3)', width: 80, flexShrink: 0 }}>{c.public_id?.slice(0, 8)}...</span>
-                                    <span style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{c.title}</span>
-                                    <Badge status={c.status} />
-                                    <span style={{ color: 'var(--ink3)', fontSize: 12, marginLeft: 4 }}>▸</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div>
+                    <div className="page-title">Case Management</div>
+                    <div className="page-sub">View, create, and manage digital forensic cases</div>
+                </div>
+                {onRefresh && (
+                    <button className="btn" onClick={onRefresh} style={{ fontSize: 10, padding: '6px 14px' }}>
+                        Refresh Cases
+                    </button>
+                )}
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="card" style={{ marginBottom: 16, padding: '12px 16px' }}>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 220 }}>
+                        <input
+                            type="text"
+                            placeholder="Search cases by title, ID or description..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="input"
+                            style={{ height: 32, fontSize: 11, fontFamily: 'var(--mono)' }}
+                        />
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {['ALL', 'OPEN', 'IN_PROGRESS', 'CLOSED', 'ARCHIVED'].map(st => (
+                            <button
+                                key={st}
+                                onClick={() => setStatusFilter(st)}
+                                className="btn"
+                                style={{
+                                    fontSize: 9,
+                                    padding: '4px 8px',
+                                    background: statusFilter === st ? 'rgba(255,255,255,0.12)' : 'transparent',
+                                    border: `1px solid ${statusFilter === st ? 'var(--ink)' : 'var(--rule2)'}`
+                                }}
+                            >
+                                {st}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16 }}>
+                {/* Cases List */}
+                <div className="card" style={{ padding: 0 }}>
+                    <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--rule2)' }}>
+                        <SectionTitle style={{ margin: 0, border: 'none', padding: 0 }}>
+                            Active Cases ({filteredCases.length})
+                        </SectionTitle>
+                    </div>
+
+                    {filteredCases.length === 0 ? (
+                        <Empty>No cases matching your criteria.</Empty>
+                    ) : (
+                        filteredCases.map(c => (
+                            <div key={c.public_id} style={{ borderBottom: '1px solid var(--rule2)', padding: '12px 20px' }}>
+                                <Row onClick={() => navigate(`/admin/cases/${c.public_id}`)}>
+                                    <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink3)', width: 90, flexShrink: 0 }}>
+                                        {c.public_id?.slice(0, 8)}...
+                                    </span>
+                                    <div style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {c.title}
+                                        </div>
+                                        {c.description && (
+                                            <div style={{ fontSize: 11, color: 'var(--ink3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
+                                                {c.description}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                        {c.priority && (
+                                            <span style={{
+                                                fontFamily: 'var(--mono)',
+                                                fontSize: 8,
+                                                padding: '1px 6px',
+                                                background: c.priority === 'high' ? 'rgba(255,60,60,0.1)' : 'rgba(255,255,255,0.05)',
+                                                color: c.priority === 'high' ? '#ff4444' : '#aaa',
+                                                textTransform: 'uppercase'
+                                            }}>
+                                                {c.priority}
+                                            </span>
+                                        )}
+                                        <Badge status={c.status} />
+                                        <span style={{ color: 'var(--ink3)', fontSize: 12, marginLeft: 4 }}>▸</span>
+                                    </div>
                                 </Row>
                             </div>
-                        ))}
+                        ))
+                    )}
                 </div>
+
+                {/* Direct Create Case Panel */}
                 <div className="card" style={{ alignSelf: 'start' }}>
-                    <SectionTitle>Case Creation Relocated</SectionTitle>
-                    <div style={{ fontSize: 12, color: 'var(--ink2)', lineHeight: 1.5 }}>
-                        To create a new case, go to the <strong>Departments</strong> screen, click a department to view it, and use the creation form there.
-                    </div>
+                    <SectionTitle>Open New Investigation Case</SectionTitle>
+                    <ErrorBanner message={createError} />
+                    <SuccessBanner message={createSuccess} />
+                    <form onSubmit={handleCreate}>
+                        <Field label="Case Title">
+                            <input
+                                className="input"
+                                type="text"
+                                value={form.title}
+                                onChange={e => setForm(f => ({ ...f, title: e.target.value }))}
+                                placeholder="e.g. Operation Cybershield"
+                                required
+                            />
+                        </Field>
+
+                        <Field label="Department">
+                            <select
+                                className="select"
+                                value={form.dept_id}
+                                onChange={e => setForm(f => ({ ...f, dept_id: e.target.value }))}
+                                required
+                            >
+                                <option value="">Select Department...</option>
+                                {departments.map(d => (
+                                    <option key={d.public_id} value={d.public_id}>
+                                        {d.name}
+                                    </option>
+                                ))}
+                            </select>
+                        </Field>
+
+                        <Field label="Priority Level">
+                            <select
+                                className="select"
+                                value={form.priority}
+                                onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}
+                            >
+                                <option value="low">Low</option>
+                                <option value="medium">Medium</option>
+                                <option value="high">High</option>
+                                <option value="critical">Critical</option>
+                            </select>
+                        </Field>
+
+                        <Field label="Case Brief / Description">
+                            <textarea
+                                className="input"
+                                value={form.description}
+                                onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                                placeholder="Details regarding case scope and objectives..."
+                                style={{ height: 64, resize: 'none' }}
+                            />
+                        </Field>
+
+                        <button
+                            type="submit"
+                            className="btn btn-primary"
+                            style={{ width: '100%', marginTop: 6 }}
+                            disabled={creating}
+                        >
+                            {creating ? 'Creating Case...' : 'Initialize Case'}
+                        </button>
+                    </form>
                 </div>
             </div>
         </div>
