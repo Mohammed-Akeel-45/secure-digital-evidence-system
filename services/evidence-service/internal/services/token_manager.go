@@ -30,7 +30,7 @@ func GetDefaultTokenManager() *TokenManager {
 	once.Do(func() {
 		authURL := os.Getenv("AUTH_SERVICE_URL")
 		if authURL == "" {
-			authURL = "http://sdes_auth:3001"
+			authURL = "http://sdes_nginx:80"
 		}
 
 		serviceName := os.Getenv("SERVICE_NAME")

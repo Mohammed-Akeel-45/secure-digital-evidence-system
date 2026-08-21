@@ -61,25 +61,15 @@ func main() {
 
 	// Evidence registration & verification routes
 	router.POST("/api/v1/audit/evidence/register", handler.RegisterEvidence)
-	router.POST("/api/v1/evidence/register", handler.RegisterEvidence)
 	router.GET("/api/v1/audit/evidence/:id/verify", handler.VerifyEvidence)
-	router.GET("/api/v1/evidence/:id/verify", handler.VerifyEvidence)
 
 	// Custody logs routes
 	router.GET("/api/v1/audit/custody-logs", handler.GetCustodyLogs)
-	router.GET("/api/v1/custody-logs", handler.GetCustodyLogs)
 	router.GET("/api/v1/audit/custody-logs/:id", handler.GetCustodyLogByID)
-	router.GET("/api/v1/custody-logs/:id", handler.GetCustodyLogByID)
-	router.GET("/api/v1/audit/evidence/:id/custody-logs", handler.GetCustodyLogs)
 
 	// Audit logs routes
-	router.GET("/api/v1/audit/logs", handler.GetAuditLogs)
-	router.GET("/api/v1/audit/logs/:id", handler.GetAuditLogByID)
 	router.GET("/api/v1/audit/audit-logs", handler.GetAuditLogs)
 	router.GET("/api/v1/audit/audit-logs/:id", handler.GetAuditLogByID)
-	router.GET("/api/v1/audit-logs", handler.GetAuditLogs)
-	router.GET("/api/v1/audit-logs/:id", handler.GetAuditLogByID)
-	router.GET("/api/v1/audit/evidence/:id/logs", handler.GetAuditLogs)
 
 	log.Printf("Service running on : %s\n", port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%s", port), router))

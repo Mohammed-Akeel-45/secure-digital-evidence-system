@@ -98,7 +98,8 @@ func (s *Storage) ResolveDepartmentInternalIDToPublicID(ctx context.Context, id 
 	return publicID, nil
 }
 
-// DeleteDepartmentStart begins a transaction, deletes the department, and returns the tx, deptID and orgID.
+// DeleteDepartmentStart begins a transaction and gets the department IDs.
+// The actual department deletion happens later, after dependencies are cleaned up.
 func (s *Storage) DeleteDepartmentStart(ctx context.Context, departmentPublicID string) (pgx.Tx, int64, int64, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
@@ -106,20 +107,50 @@ func (s *Storage) DeleteDepartmentStart(ctx context.Context, departmentPublicID 
 	}
 
 	query := `
-		DELETE FROM departments
+		SELECT id, org_id
+		FROM departments
 		WHERE public_id = $1
-		RETURNING id, org_id
 	`
 
 	var deptID int64
 	var orgID int64
+
 	err = tx.QueryRow(ctx, query, departmentPublicID).Scan(&deptID, &orgID)
 	if err != nil {
 		tx.Rollback(ctx)
-		return nil, 0, 0, fmt.Errorf("error deleting department: %w", err)
+		return nil, 0, 0, fmt.Errorf("error resolving department: %w", err)
 	}
 
 	return tx, deptID, orgID, nil
+}
+
+func (s *Storage) ClearDepartmentUsers(ctx context.Context, tx pgx.Tx, deptID int64) error {
+	query := `
+		UPDATE users
+		SET dept_id = NULL
+		WHERE dept_id = $1
+	`
+
+	_, err := tx.Exec(ctx, query, deptID)
+	if err != nil {
+		return fmt.Errorf("error clearing department from users: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Storage) DeleteDepartment(ctx context.Context, tx pgx.Tx, deptID int64) error {
+	query := `
+		DELETE FROM departments
+		WHERE id = $1
+	`
+
+	_, err := tx.Exec(ctx, query, deptID)
+	if err != nil {
+		return fmt.Errorf("error deleting department: %w", err)
+	}
+
+	return nil
 }
 
 // DeleteDepartmentRoles deletes roles associated with the department
@@ -138,17 +169,14 @@ func (s *Storage) DeleteDepartmentRoles(ctx context.Context, tx pgx.Tx, deptID i
 }
 
 func (s *Storage) DeleteCaseRoles(ctx context.Context, tx pgx.Tx, caseIDs []int64) error {
-	// Delete case roles.
 	query := `
 		DELETE FROM roles
 		WHERE scope_type = 'CASE' AND scope_id = ANY($1::bigint[])
 	`
-	result, err := tx.Exec(ctx, query, caseIDs)
+
+	_, err := tx.Exec(ctx, query, caseIDs)
 	if err != nil {
 		return fmt.Errorf("error deleting case roles: %w", err)
-	}
-	if result.RowsAffected() == 0 && len(caseIDs) > 0 {
-		return fmt.Errorf("no rows affected")
 	}
 
 	return nil

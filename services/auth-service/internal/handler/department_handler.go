@@ -153,6 +153,13 @@ func (h *AuthHandler) DeleteDepartment(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback(ctx)
 
+	err = h.Store.ClearDepartmentUsers(ctx, tx, deptID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to clear department from users", "error", err, "dept_id", deptID)
+		http.Error(w, "Failed to clear department users", http.StatusInternalServerError)
+		return
+	}
+
 	// Get all the cases in the department from case-service.
 	cases, err := h.HTTPCaller.GetDepartmentCases(ctx, orgID, deptID)
 	if err != nil {
@@ -182,6 +189,13 @@ func (h *AuthHandler) DeleteDepartment(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to delete department cases via HTTP", "error", err, "org_id", orgID, "dept_id", deptID)
 		http.Error(w, "Failed to delete department cases from case service", http.StatusInternalServerError)
+		return
+	}
+
+	err = h.Store.DeleteDepartment(ctx, tx, deptID)
+	if err != nil {
+		slog.ErrorContext(ctx, "Failed to delete department", "error", err, "dept_id", deptID)
+		http.Error(w, "Failed to delete department", http.StatusInternalServerError)
 		return
 	}
 

@@ -264,7 +264,9 @@ export async function verifyEvidence(evidenceId) {
 
 export async function getCustodyLogs(params = {}) {
   const cleanParams = Object.fromEntries(
-    Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== "")
+    Object.entries(params).filter(
+      ([_, v]) => v !== undefined && v !== null && v !== "",
+    ),
   );
   const query = new URLSearchParams(cleanParams).toString();
   return request(`${AUDIT_BASE}/custody-logs${query ? `?${query}` : ""}`);
@@ -276,14 +278,16 @@ export async function getCustodyLogById(id) {
 
 export async function getAuditLogs(params = {}) {
   const cleanParams = Object.fromEntries(
-    Object.entries(params).filter(([_, v]) => v !== undefined && v !== null && v !== "")
+    Object.entries(params).filter(
+      ([_, v]) => v !== undefined && v !== null && v !== "",
+    ),
   );
   const query = new URLSearchParams(cleanParams).toString();
-  return request(`${AUDIT_BASE}/logs${query ? `?${query}` : ""}`);
+  return request(`${AUDIT_BASE}/audit-logs${query ? `?${query}` : ""}`);
 }
 
 export async function getAuditLogById(id) {
-  return request(`${AUDIT_BASE}/logs/${id}`);
+  return request(`${AUDIT_BASE}/audit-logs/${id}`);
 }
 
 export async function getUserDetails(userId) {
