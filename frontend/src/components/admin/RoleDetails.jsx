@@ -5,7 +5,10 @@ import { SectionTitle, Empty } from './AdminCommon';
 import { ErrorBanner, SuccessBanner } from '../auth/FormParts';
 
 export function RoleDetails() {
-    const { param1: roleName, param2: scopeType, param3: scopeId } = useParams();
+    const params = useParams();
+    const roleName = params.roleName || params.param1 || params.id || '';
+    const scopeType = (params.scopeType || params.param2 || 'ORG').toUpperCase();
+    const scopeId = params.scopeId || params.param3 || (scopeType === 'ORG' ? 'org' : '');
     const navigate = useNavigate();
 
     const [allPermissions, setAllPermissions] = useState([]);
@@ -22,19 +25,19 @@ export function RoleDetails() {
             const allPerms = await getAllPermissions();
             setAllPermissions(allPerms || []);
 
-            const assignedPerms = await getRolePermissions(roleName, scopeType, scopeId);
-            setAssignedPermissions((assignedPerms || []).map(p => p.name));
+            if (roleName) {
+                const assignedPerms = await getRolePermissions(roleName, scopeType, scopeId);
+                setAssignedPermissions((assignedPerms || []).map(p => p.name));
+            }
         } catch (err) {
-            setError(err.message.toUpperCase());
+            setError(err.message?.toUpperCase() || 'FAILED TO LOAD ROLE PERMISSIONS');
         } finally {
             setLoading(false);
         }
     };
 
     useEffect(() => {
-        if (roleName && scopeType && scopeId) {
-            loadPermissionsData();
-        }
+        loadPermissionsData();
     }, [roleName, scopeType, scopeId]);
 
     const handleTogglePermission = async (permissionName, isAssigned) => {
