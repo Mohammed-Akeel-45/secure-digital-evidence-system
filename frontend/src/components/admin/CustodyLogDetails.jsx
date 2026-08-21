@@ -3,10 +3,13 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { getCustodyLogById } from '../../api/auth';
 import { SectionTitle, Empty, Badge, formatFileSize } from './AdminCommon';
 import { ErrorBanner } from '../auth/FormParts';
+import { useAuth } from '../../context/AuthContext';
 
 export function CustodyLogDetails() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { isAdmin } = useAuth();
+    const backUrl = isAdmin ? '/admin/custody' : '/dashboard/custody';
 
     const [logData, setLogData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -45,7 +48,7 @@ export function CustodyLogDetails() {
             <div className="animate-slide">
                 <div className="page-title">Custody Transfer Record</div>
                 <ErrorBanner message={error || 'Custody record not found'} />
-                <button className="btn" onClick={() => navigate('/admin/custody')} style={{ marginTop: 12 }}>
+                <button className="btn" onClick={() => navigate(backUrl)} style={{ marginTop: 12 }}>
                     ← Back to Chain of Custody
                 </button>
             </div>
@@ -56,7 +59,7 @@ export function CustodyLogDetails() {
         <div className="animate-slide">
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-                <button className="btn" onClick={() => navigate('/admin/custody')} style={{ padding: '6px 12px', fontSize: 11 }}>
+                <button className="btn" onClick={() => navigate(backUrl)} style={{ padding: '6px 12px', fontSize: 11 }}>
                     ← Back
                 </button>
                 <div className="page-title" style={{ margin: 0 }}>Custody Event Record</div>

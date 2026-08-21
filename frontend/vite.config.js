@@ -8,11 +8,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/api": {
-        target: "http://sdes_nginx:80",
+        target: "http://localhost:80",
         changeOrigin: true,
       },
       "/evidence": {
-        target: "http://sdes_nginx:80",
+        target: "http://localhost:80",
         changeOrigin: true,
       },
     },
