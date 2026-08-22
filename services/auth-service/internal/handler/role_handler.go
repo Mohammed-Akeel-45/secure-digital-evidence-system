@@ -459,12 +459,10 @@ func (h *AuthHandler) GetRolePermissions(w http.ResponseWriter, r *http.Request)
 
 	var scopeID int64
 	var err error
-	if scopeType != "" && scopePublicID != "" {
+	if scopeType != "" {
 		scopeID, err = h.resolveScopeID(ctx, models.Scope{Type: scopeType, PublicID: scopePublicID})
 		if err != nil {
-			slog.ErrorContext(ctx, "Failed to resolve scope ID in GetRolePermissions", "error", err, "scope_type", scopeType, "scope_id", scopePublicID)
-			http.Error(w, "Failed to resolve scope ID", http.StatusBadRequest)
-			return
+			slog.WarnContext(ctx, "Failed to resolve scope ID in GetRolePermissions, continuing with default", "error", err, "scope_type", scopeType, "scope_id", scopePublicID)
 		}
 	}
 

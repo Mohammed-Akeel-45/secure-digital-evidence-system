@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import styles from './AppLayout.module.css';
 
@@ -28,9 +29,34 @@ const ICONS = {
   cases:       'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
   departments: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4',
   members:     'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z',
+  roles:       'M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z',
   audit:       'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01',
+  custody:     'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1',
   evidence:    'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z',
 };
+
+const ADMIN_NAV = [
+  { type: 'section', label: 'Operations' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'cases', label: 'Case Management' },
+  { id: 'evidence', label: 'Evidence Vault' },
+  { type: 'section', label: 'Organization' },
+  { id: 'members', label: 'Members' },
+  { id: 'departments', label: 'Departments' },
+  { type: 'section', label: 'Security & Audit' },
+  { id: 'roles', label: 'Roles & RBAC' },
+  { id: 'custody', label: 'Chain of Custody' },
+  { id: 'audit', label: 'Audit Logs' },
+];
+
+const USER_NAV = [
+  { type: 'section', label: 'My Work' },
+  { id: 'cases', label: 'My Cases' },
+  { id: 'evidence', label: 'Evidence Vault' },
+  { type: 'section', label: 'Security & Integrity' },
+  { id: 'custody', label: 'Chain of Custody' },
+  { id: 'audit', label: 'Audit Trail' },
+];
 
 function NavIcon({ id }) {
   const d = ICONS[id] || ICONS.overview;
@@ -45,13 +71,39 @@ function NavIcon({ id }) {
 
 export function AppLayout({ navItems, activePage, onNavigate, children }) {
   const { user, logout, isAdmin } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const activeLabel = navItems.find(n => n.id === activePage)?.label || '';
+  const effectiveNavItems = navItems || (isAdmin ? ADMIN_NAV : USER_NAV);
+
+  // Derive active page if not explicitly supplied
+  let currentActive = activePage;
+  if (!currentActive) {
+    const path = location.pathname;
+    const parts = path.split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      currentActive = parts[1];
+    } else {
+      currentActive = isAdmin ? 'overview' : 'cases';
+    }
+  }
+
+  // Handle navigation
+  const handleNavigate = (id) => {
+    if (onNavigate) {
+      onNavigate(id);
+    } else {
+      const base = isAdmin ? '/admin' : '/dashboard';
+      navigate(`${base}/${id}`);
+    }
+  };
+
+  const activeLabel = effectiveNavItems.find(n => n.id === currentActive)?.label || currentActive?.toUpperCase() || '';
 
   // Group nav items by section
   const sections = [];
   let current = { label: '', items: [] };
-  navItems.forEach(item => {
+  effectiveNavItems.forEach(item => {
     if (item.type === 'section') {
       if (current.items.length) sections.push(current);
       current = { label: item.label, items: [] };
@@ -66,7 +118,7 @@ export function AppLayout({ navItems, activePage, onNavigate, children }) {
       {/* ── Sidebar ── */}
       <aside className={styles.sidebar}>
         {/* Logo */}
-        <div className={styles.sidebarLogo}>
+        <div className={styles.sidebarLogo} onClick={() => navigate(isAdmin ? '/admin/overview' : '/dashboard/cases')} style={{ cursor: 'pointer' }}>
           <div className={styles.logoMark}>S</div>
           <div>
             <div className={styles.logoName}>SDES</div>
@@ -82,12 +134,12 @@ export function AppLayout({ navItems, activePage, onNavigate, children }) {
                 <div className={styles.navGroupLabel}>{section.label}</div>
               )}
               {section.items.map((item) => {
-                const active = activePage === item.id;
+                const active = currentActive === item.id;
                 return (
                   <button
                     key={item.id}
                     className={`${styles.navItem} ${active ? styles.navActive : ''}`}
-                    onClick={() => onNavigate(item.id)}
+                    onClick={() => handleNavigate(item.id)}
                   >
                     <span className={styles.navIcon}>
                       <NavIcon id={item.id} />
@@ -104,10 +156,10 @@ export function AppLayout({ navItems, activePage, onNavigate, children }) {
         {/* User block at bottom */}
         <div className={styles.sidebarUser}>
           <div className={styles.userAvatar}>
-            {user?.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+            {user?.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'}
           </div>
           <div className={styles.userInfo}>
-            <div className={styles.userName}>{user?.name}</div>
+            <div className={styles.userName}>{user?.name || 'User'}</div>
             <div className={styles.userRole}>{isAdmin ? 'Administrator' : 'Officer'}</div>
           </div>
           <button className={styles.logoutBtn} onClick={logout} title="Logout">

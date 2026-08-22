@@ -4,7 +4,7 @@ import { createMember, getOrgUsers, getOrgRoles, getOrgDepartments } from '../..
 import { Row, Empty, SectionTitle } from './AdminCommon';
 import { Field, ErrorBanner, SuccessBanner } from '../auth/FormParts';
 
-export function Members({ onRefresh }) {
+export function Members({ onRefresh = () => {} }) {
     const navigate = useNavigate();
     const [form, setForm] = useState({
         name: '',
@@ -138,7 +138,9 @@ export function Members({ onRefresh }) {
             });
 
             await loadMembers();
-            onRefresh();
+            if (typeof onRefresh === 'function') {
+                onRefresh();
+            }
         } catch (err) {
             setError(
                 err?.message?.toUpperCase() ||

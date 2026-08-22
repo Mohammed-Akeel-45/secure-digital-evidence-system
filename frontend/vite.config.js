@@ -11,10 +11,6 @@ export default defineConfig({
         target: "http://sdes_nginx:80",
         changeOrigin: true,
       },
-      "/evidence": {
-        target: "http://sdes_nginx:80",
-        changeOrigin: true,
-      },
     },
   },
 });

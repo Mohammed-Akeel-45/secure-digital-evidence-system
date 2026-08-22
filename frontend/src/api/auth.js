@@ -221,8 +221,22 @@ export async function getCaseUsers(caseId) {
   return request(`${CASE_BASE}/${caseId}/users`);
 }
 
+export async function updateCaseStatus({ caseId, status }) {
+  return request(`${CASE_BASE}/${caseId}/status`, {
+    method: "PUT",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function deleteCase(caseId) {
+  return request(`${CASE_BASE}/${caseId}`, {
+    method: "DELETE",
+  });
+}
+
 export async function getEvidence(caseId) {
-  return request(`${EVIDENCE_BASE}?case_id=${caseId}`);
+  const url = caseId ? `${EVIDENCE_BASE}?case_id=${caseId}` : `${EVIDENCE_BASE}`;
+  return request(url);
 }
 
 export async function uploadEvidence(formData) {

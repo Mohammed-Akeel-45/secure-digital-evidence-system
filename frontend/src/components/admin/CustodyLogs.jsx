@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getCustodyLogs } from '../../api/auth';
 import { Row, Badge, Empty, SectionTitle, StatCard, formatFileSize } from './AdminCommon';
 
 export function CustodyLogs() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const urlEvidenceId = searchParams.get('evidence_id') || '';
+
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [searchEvidence, setSearchEvidence] = useState('');
+    const [searchTerm, setSearchTerm] = useState(urlEvidenceId);
     const [filterAction, setFilterAction] = useState('ALL');
     const [expandedLog, setExpandedLog] = useState(null);
 
@@ -16,11 +19,7 @@ export function CustodyLogs() {
         setLoading(true);
         setError('');
         try {
-            const params = {};
-            if (searchEvidence.trim()) {
-                params.evidence_id = searchEvidence.trim();
-            }
-            const data = await getCustodyLogs(params);
+            const data = await getCustodyLogs({});
             setLogs(data || []);
         } catch (err) {
             setError(err.message || 'Failed to load custody logs');
@@ -32,10 +31,32 @@ export function CustodyLogs() {
 
     useEffect(() => {
         fetchLogs();
-    }, []);
+        if (urlEvidenceId) {
+            setSearchTerm(urlEvidenceId);
+        }
+    }, [urlEvidenceId]);
 
     const filteredLogs = logs.filter(log => {
         if (filterAction !== 'ALL' && log.action !== filterAction) return false;
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            const evName = (log.evidence_name || log.action_metadata?.file_name || '').toLowerCase();
+            const caseTitle = (log.case_title || log.action_metadata?.case_title || '').toLowerCase();
+            const userName = (log.user_name || log.action_metadata?.user_name || '').toLowerCase();
+            const remarks = (log.remarks || '').toLowerCase();
+            const evId = (log.evidence_public_id || '').toLowerCase();
+            const caseId = (log.case_public_id || '').toLowerCase();
+            const publicId = (log.public_id || '').toLowerCase();
+
+            const match = evName.includes(term) ||
+                caseTitle.includes(term) ||
+                userName.includes(term) ||
+                remarks.includes(term) ||
+                evId.includes(term) ||
+                caseId.includes(term) ||
+                publicId.includes(term);
+            if (!match) return false;
+        }
         return true;
     });
 
@@ -67,10 +88,9 @@ export function CustodyLogs() {
                     <div style={{ flex: 1, minWidth: 220 }}>
                         <input
                             type="text"
-                            placeholder="Filter by Evidence Name / UUID..."
-                            value={searchEvidence}
-                            onChange={(e) => setSearchEvidence(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') fetchLogs(); }}
+                            placeholder="Search by evidence name, case, user, remarks, ID..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                             style={{
                                 width: '100%',
                                 padding: '6px 10px',
@@ -99,9 +119,11 @@ export function CustodyLogs() {
                             </button>
                         ))}
                     </div>
-                    <button className="btn" onClick={fetchLogs} style={{ fontSize: 10, padding: '6px 12px' }}>
-                        Search
-                    </button>
+                    {searchTerm && (
+                        <button className="btn" onClick={() => setSearchTerm('')} style={{ fontSize: 10, padding: '6px 12px' }}>
+                            Clear
+                        </button>
+                    )}
                 </div>
             </div>
 

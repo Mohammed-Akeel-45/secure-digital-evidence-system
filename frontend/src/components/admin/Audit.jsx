@@ -8,7 +8,7 @@ export function Audit() {
     const [logs, setLogs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [searchEvidence, setSearchEvidence] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
     const [filterStatus, setFilterStatus] = useState('ALL');
     const [filterAction, setFilterAction] = useState('ALL');
     const [expandedLog, setExpandedLog] = useState(null);
@@ -17,11 +17,7 @@ export function Audit() {
         setLoading(true);
         setError('');
         try {
-            const params = {};
-            if (searchEvidence.trim()) {
-                params.evidence_id = searchEvidence.trim();
-            }
-            const data = await getAuditLogs(params);
+            const data = await getAuditLogs({});
             setLogs(data || []);
         } catch (err) {
             setError(err.message || 'Failed to load audit logs');
@@ -38,6 +34,31 @@ export function Audit() {
     const filteredLogs = logs.filter(log => {
         if (filterStatus !== 'ALL' && log.status?.toUpperCase() !== filterStatus) return false;
         if (filterAction !== 'ALL' && log.action !== filterAction) return false;
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            const evName = (log.evidence_name || log.details?.file_name || '').toLowerCase();
+            const caseTitle = (log.case_title || log.details?.case_title || '').toLowerCase();
+            const userName = (log.user_name || log.details?.user_name || '').toLowerCase();
+            const serviceName = (log.service_name || '').toLowerCase();
+            const evId = (log.evidence_public_id || '').toLowerCase();
+            const currentHash = (log.current_hash || '').toLowerCase();
+            const prevHash = (log.previous_hash || '').toLowerCase();
+            const publicId = (log.public_id || '').toLowerCase();
+            const reqId = (log.request_id || '').toLowerCase();
+            const ip = (log.ip_address || '').toLowerCase();
+
+            const match = evName.includes(term) ||
+                          caseTitle.includes(term) ||
+                          userName.includes(term) ||
+                          serviceName.includes(term) ||
+                          evId.includes(term) ||
+                          currentHash.includes(term) ||
+                          prevHash.includes(term) ||
+                          publicId.includes(term) ||
+                          reqId.includes(term) ||
+                          ip.includes(term);
+            if (!match) return false;
+        }
         return true;
     });
 
@@ -71,10 +92,9 @@ export function Audit() {
                     <div style={{ flex: 1, minWidth: 220 }}>
                         <input
                             type="text"
-                            placeholder="Filter by Evidence Name / UUID..."
-                            value={searchEvidence}
-                            onChange={(e) => setSearchEvidence(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') fetchLogs(); }}
+                            placeholder="Search by evidence name, case, user, hash, ID..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
                             style={{
                                 width: '100%',
                                 padding: '6px 10px',
@@ -125,9 +145,11 @@ export function Audit() {
                         ))}
                     </div>
 
-                    <button className="btn" onClick={fetchLogs} style={{ fontSize: 10, padding: '6px 12px' }}>
-                        Search
-                    </button>
+                    {searchTerm && (
+                        <button className="btn" onClick={() => setSearchTerm('')} style={{ fontSize: 10, padding: '6px 12px' }}>
+                            Clear
+                        </button>
+                    )}
                 </div>
             </div>
 
