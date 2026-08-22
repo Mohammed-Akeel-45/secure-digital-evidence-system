@@ -31,7 +31,7 @@ export function AdminOverviewPage() {
                 setRecentLogs(Array.isArray(logsRes) ? logsRes.slice(0, 5) : []);
 
                 // Load evidence for top cases
-                const evPromises = casesList.slice(0, 8).map(c => 
+                const evPromises = casesList.slice(0, 8).map(c =>
                     getEvidence(c.public_id).then(items => Array.isArray(items) ? items : []).catch(() => [])
                 );
                 const evResults = await Promise.all(evPromises);
@@ -137,7 +137,7 @@ export function AdminOverviewPage() {
                             <Empty>No security logs recorded yet</Empty>
                         ) : (
                             recentLogs.map((log, idx) => (
-                                <Row key={log.id || idx} onClick={() => navigate(`/admin/audit/${log.id}`)}>
+                                <Row key={log.public_id || idx} onClick={() => navigate(`/admin/audit/${log.public_id}`)}>
                                     <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', width: 80, flexShrink: 0 }}>
                                         {new Date(log.timestamp || log.created_at || Date.now()).toLocaleTimeString('en-IN')}
                                     </span>
