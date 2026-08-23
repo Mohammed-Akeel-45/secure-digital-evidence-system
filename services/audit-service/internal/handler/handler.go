@@ -92,8 +92,9 @@ func (h *Handler) VerifyEvidence(c *gin.Context) {
 	}
 
 	authHeader := c.GetHeader("Authorization")
+	clientIP := c.ClientIP()
 
-	result, err := h.evidenceService.VerifyEvidence(c.Request.Context(), evidenceID, authHeader)
+	result, err := h.evidenceService.VerifyEvidence(c.Request.Context(), evidenceID, authHeader, clientIP)
 	if err != nil {
 		if errors.Is(err, cerrors.ErrEvidenceNotFound.Error) {
 			c.JSON(http.StatusNotFound, gin.H{

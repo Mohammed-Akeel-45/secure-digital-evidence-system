@@ -20,6 +20,7 @@ type AuditRepo interface {
 	InsertAuditLog(ctx context.Context, a store.AuditLog) error
 	ListAuditLogs(ctx context.Context, evidenceID string, caseID string, limit int, offset int) ([]store.AuditLogDTO, error)
 	GetAuditLogByID(ctx context.Context, id string) (*store.AuditLogDTO, error)
+	GetLatestAuditLogByEvidenceID(ctx context.Context, evidenceID int64) (*store.AuditLogDTO, error)
 }
 
 type ActionRepo interface {

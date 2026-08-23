@@ -70,7 +70,7 @@ func (r *evidenceRepo) InsertEvidenceHash(ctx context.Context, e store.EvidenceD
 func (r *evidenceRepo) GetEvidenceHash(ctx context.Context, evidenceID string) (*store.EvidenceHash, error) {
 	var e store.EvidenceHash
 	query := `
-		SELECT file_hash, algorithm
+		SELECT evidence_id, COALESCE(evidence_public_id::text, ''), file_hash, algorithm
 		FROM integrity_schema.evidence_hashes
 		WHERE evidence_public_id::text = @evidenceID OR evidence_id::text = @evidenceID
 		LIMIT 1
@@ -80,7 +80,7 @@ func (r *evidenceRepo) GetEvidenceHash(ctx context.Context, evidenceID string) (
 		"evidenceID": evidenceID,
 	}
 
-	if err := r.q(ctx).QueryRow(ctx, query, args).Scan(&e.FileHash, &e.Algorithm); err != nil {
+	if err := r.q(ctx).QueryRow(ctx, query, args).Scan(&e.EvidenceID, &e.EvidencePublicID, &e.FileHash, &e.Algorithm); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, cerrors.ErrEvidenceNotFound.Error
 		}

@@ -3,12 +3,25 @@ import { createContext, useContext, useState, useCallback } from 'react';
 const AuthContext = createContext(null);
 
 // Decode JWT payload without a library
-function decodeJWT(token) {
+export function decodeJWT(token) {
+    if (!token) return null;
     try {
         const payload = token.split('.')[1];
-        return JSON.parse(atob(payload));
+        if (!payload) return null;
+        const base64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+            atob(base64)
+                .split('')
+                .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                .join('')
+        );
+        return JSON.parse(jsonPayload);
     } catch {
-        return null;
+        try {
+            return JSON.parse(atob(token.split('.')[1]));
+        } catch {
+            return null;
+        }
     }
 }
 

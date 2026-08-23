@@ -55,7 +55,7 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
                 setEvidence(Array.isArray(list) ? list : []);
             } else {
                 const caseList = cases.length > 0 ? cases : await getCases().catch(() => []);
-                const promises = caseList.map(c => 
+                const promises = caseList.map(c =>
                     getEvidence(c.public_id)
                         .then(items => Array.isArray(items) ? items.map(item => ({ ...item, case_title: c.title, case_id: c.public_id })) : [])
                         .catch(() => [])

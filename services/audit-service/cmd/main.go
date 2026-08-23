@@ -50,7 +50,7 @@ func main() {
 
 	// Initialize the services.
 	registrationService := service.NewEvidenceRegistrationWorkflow(store, evidenceRepo, custodyRepo, auditRepo, actionRepo)
-	evidenceService := service.NewEvidenceService(evidenceRepo, nil)
+	evidenceService := service.NewEvidenceService(evidenceRepo, auditRepo, actionRepo, nil)
 	custodyService := service.NewCustodyService(custodyRepo)
 	auditService := service.NewAuditService(auditRepo)
 

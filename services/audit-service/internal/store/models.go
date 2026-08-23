@@ -14,8 +14,10 @@ type EvidenceDetails struct {
 }
 
 type EvidenceHash struct {
-	FileHash  string
-	Algorithm string
+	EvidenceID       int64
+	EvidencePublicID string
+	FileHash         string
+	Algorithm        string
 }
 
 type EvidenceRegistrationDetails struct {
@@ -68,6 +70,8 @@ type AuditLog struct {
 	ServiceName string
 	IPAddress   string
 	RequestID   string
+	Status      string
+	Details     string
 }
 
 type AuditLogDTO struct {
