@@ -87,7 +87,7 @@ export function EvidenceSection({ caseId }) {
         try {
             const res = await verifyEvidence(publicId || id);
             setEvidence(ev => ev.map(e => e.id === id
-                ? { ...e, integrityStatus: res.status === 'VALID' ? 'VERIFIED' : 'TAMPERED', lastChecked: new Date().toISOString() }
+                ? { ...e, integrityStatus: res.status.toUpperCase() === 'VALID' ? 'VERIFIED' : 'TAMPERED', lastChecked: new Date().toISOString() }
                 : e
             ));
             if (res.status === 'VALID') {
@@ -142,7 +142,7 @@ export function EvidenceSection({ caseId }) {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                             <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{formatFileSize(ev.file_size)}</span>
                                             <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{new Date(ev.uploaded_at).toLocaleDateString('en-IN')}</span>
-                                            <Badge status={ev.integrityStatus || 'VERIFIED'} />
+                                            <Badge status={ev.status || 'UNKNOWN'} />
                                         </div>
                                         <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--rule2)' }}>
                                             <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', marginBottom: 3, letterSpacing: '0.08em' }}>SHA-256</div>
@@ -221,7 +221,7 @@ export function Cases({ cases = [], onRefresh }) {
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('ALL');
     const [departments, setDepartments] = useState([]);
-    
+
     // Create Case Form State
     const [form, setForm] = useState({ title: '', description: '', priority: 'medium', dept_id: '' });
     const [creating, setCreating] = useState(false);

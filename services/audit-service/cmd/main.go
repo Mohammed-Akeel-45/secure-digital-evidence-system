@@ -63,6 +63,9 @@ func main() {
 	router.POST("/api/v1/audit/evidence/register", handler.RegisterEvidence)
 	router.GET("/api/v1/audit/evidence/:id/verify", handler.VerifyEvidence)
 
+	// Evidence status routes.
+	router.GET("/api/v1/audit/evidence/get-status", handler.GetEvidenceStatus)
+
 	// Custody logs routes
 	router.GET("/api/v1/audit/custody-logs", handler.GetCustodyLogs)
 	router.GET("/api/v1/audit/custody-logs/:id", handler.GetCustodyLogByID)

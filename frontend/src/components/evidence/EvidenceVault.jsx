@@ -143,7 +143,7 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
         setSuccess('');
         try {
             const res = await verifyEvidence(id);
-            const isValid = res.status === 'VALID' || res.status === 'VERIFIED';
+            const isValid = res.status.toUpperCase() === 'VALID' || res.status === 'VERIFIED';
             setEvidence(items => items.map(item => {
                 if ((item.public_id || item.id) === id) {
                     return {
@@ -296,7 +296,7 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
                             {filteredEvidence.map(ev => {
                                 const fileExt = ev.file_name?.split('.').pop()?.toUpperCase() || 'BIN';
                                 const itemCaseTitle = ev.case_title || cases.find(c => c.public_id === ev.case_id)?.title;
-                                const status = ev.integrityStatus || 'VALID';
+                                const status = ev.status.toUpperCase() || 'UNKNOWN';
 
                                 return (
                                     <div key={ev.public_id || ev.id} style={{ padding: '16px 20px', borderBottom: '1px solid var(--rule2)' }}>

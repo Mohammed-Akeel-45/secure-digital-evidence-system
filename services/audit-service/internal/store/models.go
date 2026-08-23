@@ -20,6 +20,12 @@ type EvidenceHash struct {
 	Algorithm        string
 }
 
+type EvidenceStatus struct {
+	EvidenceID  int64  `json:"evidence_id" db:"evidence_id"`
+	Status      string `json:"status" db:"status"`
+	CurrentHash string `json:"current_hash" db:"current_hash"`
+}
+
 type EvidenceRegistrationDetails struct {
 	EvidenceID       int64  `json:"evidence_id" binding:"required"`
 	EvidencePublicID string `json:"evidence_public_id" binding:"required"`

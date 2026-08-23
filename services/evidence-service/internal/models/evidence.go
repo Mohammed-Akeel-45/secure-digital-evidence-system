@@ -16,6 +16,13 @@ type Evidence struct {
 	CurrentHash string    `db:"current_hash" json:"current_hash"`
 	UploadedBy  string    `db:"uploaded_by"  json:"uploaded_by"`
 	UploadedAt  time.Time `db:"uploaded_at"  json:"uploaded_at"`
+	Status      string    `json:"status"`
+}
+
+type EvidenceStatus struct {
+	EvidenceID  int64  `json:"evidence_id"`
+	Status      string `json:"status"`
+	CurrentHash string `json:"current_hash"`
 }
 
 type Claims struct {

@@ -90,3 +90,37 @@ func (r *evidenceRepo) GetEvidenceHash(ctx context.Context, evidenceID string) (
 
 	return &e, nil
 }
+
+// Gets the file hash and status for given evidence IDs.
+func (r *evidenceRepo) GetEvidenceStatus(ctx context.Context, evidenceIDs []int64) ([]store.EvidenceStatus, error) {
+	query := `
+		SELECT evidence_id, current_hash, status
+		FROM integrity_schema.audit_logs
+		WHERE id IN (
+			SELECT MAX(id)
+			FROM integrity_schema.audit_logs
+			WHERE evidence_id = ANY(@evidenceIDs::bigint[])
+			GROUP BY evidence_id
+		)
+	`
+
+	args := pgx.NamedArgs{
+		"evidenceIDs": evidenceIDs,
+	}
+
+	rows, err := r.q(ctx).Query(ctx, query, args)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, cerrors.ErrEvidenceNotFound.Error
+		}
+		log.Printf("error: failed to get evidence status, %v", err)
+		return nil, fmt.Errorf("error: failed to get evidence status, %w", err)
+	}
+
+	e, err := pgx.CollectRows(rows, pgx.RowToStructByName[store.EvidenceStatus])
+	if err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}

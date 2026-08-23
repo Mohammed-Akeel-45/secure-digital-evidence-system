@@ -366,6 +366,30 @@ func (h *EvidenceHandler) ListEvidence(w http.ResponseWriter, r *http.Request) {
 
 	if evidenceList == nil {
 		evidenceList = []models.Evidence{}
+	} else {
+		var evidenceIDs = make([]int64, len(evidenceList))
+		for i, evidence := range evidenceList {
+			evidenceIDs[i] = evidence.ID
+		}
+
+		auditClient := services.NewAuditClient()
+
+		evidenceStatuses, err := auditClient.GetEvidenceStatus(ctx, evidenceIDs)
+		if err != nil {
+			log.Printf("Audit service call for evidence status failed, %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		evidenceStatusesMap := make(map[int64]models.EvidenceStatus)
+		for _, evidence := range evidenceStatuses {
+			evidenceStatusesMap[evidence.EvidenceID] = evidence
+		}
+
+		for i, evidence := range evidenceList {
+			evidenceList[i].CurrentHash = evidenceStatusesMap[evidence.ID].CurrentHash
+			evidenceList[i].Status = evidenceStatusesMap[evidence.ID].Status
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
