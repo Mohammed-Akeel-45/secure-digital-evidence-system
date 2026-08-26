@@ -104,8 +104,16 @@ func (e *evidenceService) VerifyEvidence(ctx context.Context, evidenceID string,
 		}, err
 	}
 
-	// Compare current computed hash with the previously registered known-good hash
-	isTampered := !strings.EqualFold(computedHash, evidenceHash.FileHash)
+	// Get original known-good hash from earliest audit log (or fallback to evidence_hashes)
+	originalHash := evidenceHash.FileHash
+	if e.auditRepo != nil {
+		if orig, err := e.auditRepo.GetOriginalEvidenceHash(ctx, evidenceHash.EvidenceID); err == nil && orig != "" {
+			originalHash = orig
+		}
+	}
+
+	// Compare current computed hash with original registered hash
+	isTampered := !strings.EqualFold(computedHash, originalHash)
 
 	resultStatus := "VALID"
 	logStatus := "unchanged"
@@ -115,6 +123,11 @@ func (e *evidenceService) VerifyEvidence(ctx context.Context, evidenceID string,
 		resultStatus = "TAMPERED"
 		logStatus = "tampered"
 		message = "Evidence integrity check failed: file hash does not match original registered hash"
+
+		// Update evidence_hashes to reflect the current (tampered) file hash
+		if err := e.evidenceRepo.UpdateEvidenceHash(ctx, evidenceHash.EvidenceID, computedHash); err != nil {
+			log.Printf("warning: failed to update tampered evidence hash: %v", err)
+		}
 	}
 
 	// Retrieve previous audit log metadata to preserve case, user, and file names
@@ -134,7 +147,8 @@ func (e *evidenceService) VerifyEvidence(ctx context.Context, evidenceID string,
 	}
 
 	detailsMap["verified_status"] = resultStatus
-	detailsMap["stored_hash"] = evidenceHash.FileHash
+	detailsMap["original_hash"] = originalHash
+	detailsMap["stored_hash"] = originalHash
 	detailsMap["computed_hash"] = computedHash
 	detailsMap["verified_at"] = time.Now().UTC().Format(time.RFC3339)
 

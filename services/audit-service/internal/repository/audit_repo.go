@@ -391,3 +391,38 @@ func (a *auditRepo) GetLatestAuditLogByEvidenceID(ctx context.Context, evidenceI
 
 	return &l, nil
 }
+
+func (a *auditRepo) GetOriginalEvidenceHash(ctx context.Context, evidenceID int64) (string, error) {
+	// First query the earliest UPLOAD audit log details for the evidence
+	query := `
+		SELECT 
+			COALESCE(al.details->>'file_hash', al.details->>'original_hash', al.details->>'stored_hash', '') AS original_hash
+		FROM integrity_schema.audit_logs al
+		JOIN integrity_schema.actions act ON al.action_type = act.id
+		WHERE al.evidence_id = @evidenceID AND act.name = 'UPLOAD'
+		ORDER BY al.id ASC
+		LIMIT 1
+	`
+	args := pgx.NamedArgs{"evidenceID": evidenceID}
+	var hash string
+	err := a.q(ctx).QueryRow(ctx, query, args).Scan(&hash)
+	if err == nil && hash != "" {
+		return hash, nil
+	}
+
+	// Fallback to earliest audit log for that evidence file
+	fallbackQuery := `
+		SELECT 
+			COALESCE(al.details->>'file_hash', al.details->>'original_hash', al.details->>'stored_hash', '') AS original_hash
+		FROM integrity_schema.audit_logs al
+		WHERE al.evidence_id = @evidenceID
+		ORDER BY al.id ASC
+		LIMIT 1
+	`
+	err = a.q(ctx).QueryRow(ctx, fallbackQuery, args).Scan(&hash)
+	if err == nil && hash != "" {
+		return hash, nil
+	}
+
+	return "", nil
+}

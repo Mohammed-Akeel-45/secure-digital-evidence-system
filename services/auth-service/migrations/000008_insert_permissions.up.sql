@@ -33,4 +33,5 @@ VALUES
 
     ('ORG_MANAGE',         'Manage organization settings, configuration, and members.'),
 
-    ('LOG_VIEW',           'View audit logs, chain-of-custody records, and system activity logs.');
+    ('LOG_VIEW',           'View audit logs, chain-of-custody records, and system activity logs.')
+ON CONFLICT (name) DO NOTHING;

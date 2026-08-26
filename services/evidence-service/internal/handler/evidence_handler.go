@@ -91,7 +91,7 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 
 	// Upload to S3
 	s3Key := fmt.Sprintf("%s_%s", hash, fileHeader.Filename)
-	err = h.S3Client.UploadFile(context.TODO(), s3Key, file)
+	s3VersionID, err := h.S3Client.UploadFile(context.TODO(), s3Key, file)
 	if err != nil {
 		log.Printf("S3 upload error: %v", err)
 		http.Error(w, `{"error":"failed to upload file to S3"}`, http.StatusInternalServerError)
@@ -137,6 +137,17 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Record initial version in evidence_versions table
+	_, err = h.Store.DB.Exec(
+		`INSERT INTO evidence_schema.evidence_versions
+		(evidence_id, s3_version_id, file_hash, file_size, is_current, created_by)
+		VALUES ($1, $2, $3, $4, true, $5)`,
+		insertedID, s3VersionID, hash, fileHeader.Size, userInternalID,
+	)
+	if err != nil {
+		log.Printf("Warning: failed to record evidence version: %v", err)
+	}
+
 	// 5. Register with Audit Service (Audit flow)
 	var userName string
 	_ = h.Store.DB.Get(&userName, `SELECT name FROM auth_schema.users WHERE id = $1`, userInternalID)
@@ -147,6 +158,7 @@ func (h *EvidenceHandler) CreateEvidence(w http.ResponseWriter, r *http.Request)
 	metadata := map[string]any{
 		"file_name":      fileHeader.Filename,
 		"file_size":      fileHeader.Size,
+		"file_hash":      hash,
 		"case_title":     caseResp.Title,
 		"case_public_id": caseResp.PublicID,
 		"user_name":      userName,
@@ -394,4 +406,232 @@ func (h *EvidenceHandler) ListEvidence(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(evidenceList)
+}
+
+// RevertEvidence handles reverting a tampered evidence file to its previous known-good version.
+// POST /api/v1/evidence/{id}/revert
+func (h *EvidenceHandler) RevertEvidence(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	claims, ok := ctx.Value("claims").(*models.Claims)
+	if !ok {
+		http.Error(w, `{"error":"failed to get claims from token"}`, http.StatusUnauthorized)
+		return
+	}
+	userPublicID := claims.Subject
+
+	vars := mux.Vars(r)
+	evidencePublicID := vars["id"]
+	if evidencePublicID == "" {
+		http.Error(w, `{"error":"evidence ID is required"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 1. Look up evidence record
+	var evidence models.Evidence
+	err := h.Store.DB.Get(&evidence,
+		`SELECT e.id, e.public_id, c.public_id AS case_id, e.file_name, e.file_size, e.storage_path,
+		        e.current_hash, e.uploaded_by, e.uploaded_at
+		 FROM evidence_schema.evidence e
+		 JOIN case_schema.cases c ON c.id = e.case_id
+		 WHERE e.public_id = $1`,
+		evidencePublicID,
+	)
+	if err != nil {
+		http.Error(w, `{"error":"evidence not found"}`, http.StatusNotFound)
+		return
+	}
+
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+
+	// 2. Check access to case
+	hasAccess, err := services.CheckUserCaseAccess(evidence.CaseID, userPublicID, token)
+	if err != nil || !hasAccess {
+		http.Error(w, `{"error":"access denied"}`, http.StatusForbidden)
+		return
+	}
+
+	// 3. Resolve user internal ID and name
+	var userInternalID int64
+	var userName string
+	err = h.Store.DB.QueryRow(
+		`SELECT id, name FROM auth_schema.users WHERE public_id = $1`, userPublicID,
+	).Scan(&userInternalID, &userName)
+	if err != nil {
+		http.Error(w, `{"error":"user not found"}`, http.StatusBadRequest)
+		return
+	}
+	if userName == "" {
+		userName = "User"
+	}
+
+	// 4. Find the original known-good version
+	// First check evidence_versions table
+	var versions []models.EvidenceVersion
+	_ = h.Store.DB.Select(&versions,
+		`SELECT id, evidence_id, s3_version_id, file_hash, file_size, is_current, created_by, created_at
+		 FROM evidence_schema.evidence_versions
+		 WHERE evidence_id = $1
+		 ORDER BY created_at ASC`,
+		evidence.ID,
+	)
+
+	var targetVersionID string
+	var targetHash string
+	var targetSize int64
+
+	// If versions exist in DB, look for the first (original upload) version
+	if len(versions) > 0 {
+		targetVersionID = versions[0].S3VersionID
+		targetHash = versions[0].FileHash
+		targetSize = versions[0].FileSize
+	}
+
+	// If no version found in DB or version ID empty, check S3 version history
+	if targetVersionID == "" {
+		s3Versions, err := h.S3Client.ListObjectVersions(ctx, evidence.StoragePath)
+		if err != nil || len(s3Versions) == 0 {
+			log.Printf("Failed to list S3 versions: %v", err)
+			http.Error(w, `{"error":"no S3 version history found for this evidence file"}`, http.StatusNotFound)
+			return
+		}
+
+		// S3 versions are ordered newest to oldest. Look for the oldest version.
+		for i := len(s3Versions) - 1; i >= 0; i-- {
+			v := s3Versions[i]
+			if v.VersionId != nil && *v.VersionId != "" {
+				body, err := h.S3Client.DownloadFileVersion(ctx, evidence.StoragePath, *v.VersionId)
+				if err == nil {
+					hasher := sha256.New()
+					if size, copyErr := io.Copy(hasher, body); copyErr == nil {
+						body.Close()
+						computed := hex.EncodeToString(hasher.Sum(nil))
+						targetVersionID = *v.VersionId
+						targetHash = computed
+						targetSize = size
+						break
+					}
+					body.Close()
+				}
+			}
+		}
+	}
+
+	if targetVersionID == "" {
+		http.Error(w, `{"error":"unable to find a previous valid version to revert to"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 5. Restore the version in S3 by copying it over the current object (creates a new current S3 version)
+	newVersionID, err := h.S3Client.CopyVersion(ctx, evidence.StoragePath, targetVersionID)
+	if err != nil {
+		// Fallback: download the historical version stream and upload it
+		body, dlErr := h.S3Client.DownloadFileVersion(ctx, evidence.StoragePath, targetVersionID)
+		if dlErr != nil {
+			log.Printf("Failed to copy/download version: %v", err)
+			http.Error(w, `{"error":"failed to restore file in S3"}`, http.StatusInternalServerError)
+			return
+		}
+		defer body.Close()
+		newVersionID, err = h.S3Client.UploadFile(ctx, evidence.StoragePath, body)
+		if err != nil {
+			log.Printf("Failed to re-upload restored version: %v", err)
+			http.Error(w, `{"error":"failed to restore file in S3"}`, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// 6. Update database records
+	// Update evidence table
+	_, err = h.Store.DB.Exec(
+		`UPDATE evidence_schema.evidence
+		 SET current_hash = $1, file_size = $2
+		 WHERE id = $3`,
+		targetHash, targetSize, evidence.ID,
+	)
+	if err != nil {
+		log.Printf("DB update error on revert: %v", err)
+		http.Error(w, `{"error":"failed to update evidence metadata"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// Update evidence_versions table
+	_, _ = h.Store.DB.Exec(
+		`UPDATE evidence_schema.evidence_versions SET is_current = false WHERE evidence_id = $1`,
+		evidence.ID,
+	)
+	_, _ = h.Store.DB.Exec(
+		`INSERT INTO evidence_schema.evidence_versions
+		 (evidence_id, s3_version_id, file_hash, file_size, is_current, created_by)
+		 VALUES ($1, $2, $3, $4, true, $5)`,
+		evidence.ID, newVersionID, targetHash, targetSize, userInternalID,
+	)
+
+	// 7. Register REVERT with Audit Service (audit log + custody log + update evidence hash)
+	var caseTitle string
+	var caseInternalID int64
+	_ = h.Store.DB.QueryRow(`SELECT id, title FROM case_schema.cases WHERE public_id = $1`, evidence.CaseID).Scan(&caseInternalID, &caseTitle)
+
+	metadata := map[string]any{
+		"file_name":         evidence.FileName,
+		"file_size":         targetSize,
+		"file_hash":         targetHash,
+		"reverted_from":     evidence.CurrentHash,
+		"restored_hash":     targetHash,
+		"source_version_id": targetVersionID,
+		"new_version_id":    newVersionID,
+		"case_title":        caseTitle,
+		"case_public_id":    evidence.CaseID,
+		"user_name":         userName,
+		"user_public_id":    userPublicID,
+	}
+	metadataJSON, _ := json.Marshal(metadata)
+	metadataStr := string(metadataJSON)
+
+	clientIP := r.Header.Get("X-Forwarded-For")
+	if clientIP == "" {
+		clientIP = r.Header.Get("X-Real-IP")
+	}
+	if clientIP == "" {
+		clientIP = r.RemoteAddr
+	}
+	if host, _, err := net.SplitHostPort(clientIP); err == nil {
+		clientIP = host
+	}
+	if clientIP == "" {
+		clientIP = "127.0.0.1"
+	}
+
+	go func() {
+		auditReq := services.AuditRegistrationRequest{
+			EvidenceID:       evidence.ID,
+			EvidencePublicID: evidence.PublicID,
+			Algorithm:        "SHA256",
+			FileHash:         targetHash,
+			CaseID:           caseInternalID,
+			UserID:           userInternalID,
+			Action:           "REVERT",
+			ActionMetadata:   metadataStr,
+			Remarks:          fmt.Sprintf("Reverted '%s' to original version (SHA-256: %s) by %s", evidence.FileName, targetHash, userName),
+			ServiceName:      "evidence-service",
+			IPAddress:        clientIP,
+		}
+
+		err := h.AuditClient.RegisterAudit(context.Background(), auditReq)
+		if err != nil {
+			log.Printf("CRITICAL: Failed to register revert with Audit Service: %v", err)
+		} else {
+			log.Printf("Successfully registered REVERT audit for evidence ID %d", evidence.ID)
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":        "reverted",
+		"message":       "Evidence successfully reverted to previous known-good version",
+		"file":          evidence.FileName,
+		"restored_hash": targetHash,
+		"reverted_from": evidence.CurrentHash,
+		"size":          targetSize,
+	})
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCaseUsers, getEvidence, uploadEvidence, downloadEvidence, verifyEvidence, createCase, getOrgDepartments } from '../../api/auth';
+import { getCaseUsers, getEvidence, uploadEvidence, downloadEvidence, verifyEvidence, revertEvidence, createCase, getOrgDepartments } from '../../api/auth';
 import { Row, Badge, Empty, SectionTitle, computeSHA256, formatFileSize, StatCard } from './AdminCommon';
 import { Field, ErrorBanner, SuccessBanner } from '../auth/FormParts';
 
@@ -17,6 +17,7 @@ export function EvidenceSection({ caseId }) {
     const [success, setSuccess] = useState('');
     const [uploading, setUploading] = useState(false);
     const [verifying, setVerifying] = useState(null);
+    const [reverting, setReverting] = useState(null);
     const [evidence, setEvidence] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -86,19 +87,43 @@ export function EvidenceSection({ caseId }) {
         setError('');
         try {
             const res = await verifyEvidence(publicId || id);
+            const isValid = res.status.toUpperCase() === 'VALID';
             setEvidence(ev => ev.map(e => e.id === id
-                ? { ...e, integrityStatus: res.status.toUpperCase() === 'VALID' ? 'VERIFIED' : 'TAMPERED', lastChecked: new Date().toISOString() }
+                ? { ...e, status: isValid ? 'VALID' : 'TAMPERED', integrityStatus: isValid ? 'VERIFIED' : 'TAMPERED', current_hash: res.computed_hash || e.current_hash, lastChecked: new Date().toISOString() }
                 : e
             ));
-            if (res.status === 'VALID') {
+            if (isValid) {
                 setSuccess('EVIDENCE INTEGRITY VERIFIED (SHA256 MATCH)');
             } else {
                 setError(`EVIDENCE TAMPERED: ${res.message || 'HASH MISMATCH DETECTED'}`);
             }
         } catch (err) {
-            setError('VERIFICATION FAILED: ' + JSON.parse(err.message).message || err.message.toUpperCase());
+            setError('VERIFICATION FAILED: ' + (err.message || '').toUpperCase());
         } finally {
             setVerifying(null);
+        }
+    };
+
+    const handleRevert = async (ev) => {
+        const id = ev.public_id || ev.id;
+        const confirmRevert = window.confirm(
+            `Are you sure you want to revert "${ev.file_name}" to its previous known-good version? This will restore the original file in storage and record a REVERT event in the audit trail.`
+        );
+        if (!confirmRevert) return;
+
+        setReverting(ev.id);
+        setError('');
+        setSuccess('');
+        try {
+            const res = await revertEvidence(id);
+            setSuccess(`EVIDENCE "${ev.file_name}" SUCCESSFULLY REVERTED TO ORIGINAL VERSION (${res.restored_hash || ''})`);
+            // Refresh evidence list
+            const updated = await getEvidence(caseId);
+            setEvidence(updated || []);
+        } catch (err) {
+            setError('REVERT FAILED: ' + (err.message || '').toUpperCase());
+        } finally {
+            setReverting(null);
         }
     };
 
@@ -112,6 +137,7 @@ export function EvidenceSection({ caseId }) {
             document.body.appendChild(link);
             link.click();
             link.parentNode.removeChild(link);
+            window.URL.revokeObjectURL(url);
         } catch (err) {
             setError('DOWNLOAD FAILED: ' + err.message.toUpperCase());
         }
@@ -131,36 +157,49 @@ export function EvidenceSection({ caseId }) {
                     ) : evidence.length === 0 ? (
                         <Empty>No evidence uploaded yet. Use the form to upload →</Empty>
                     ) : (
-                        evidence.map(ev => (
-                            <div key={ev.id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--rule2)' }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                                    <div style={{ width: 36, height: 36, background: 'var(--rule2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', textTransform: 'uppercase' }}>
-                                        {ev.file_name.split('.').pop()?.slice(0, 3) || 'BIN'}
-                                    </div>
-                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.file_name}</div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                                            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{formatFileSize(ev.file_size)}</span>
-                                            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{new Date(ev.uploaded_at).toLocaleDateString('en-IN')}</span>
-                                            <Badge status={ev.status || 'UNKNOWN'} />
+                        evidence.map(ev => {
+                            const isTampered = (ev.status || '').toUpperCase() === 'TAMPERED';
+                            return (
+                                <div key={ev.id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--rule2)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                                        <div style={{ width: 36, height: 36, background: 'var(--rule2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', textTransform: 'uppercase' }}>
+                                            {ev.file_name.split('.').pop()?.slice(0, 3) || 'BIN'}
                                         </div>
-                                        <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--rule2)' }}>
-                                            <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', marginBottom: 3, letterSpacing: '0.08em' }}>SHA-256</div>
-                                            <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--ink2)', wordBreak: 'break-all', lineHeight: 1.5 }}>{ev.current_hash}</div>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.file_name}</div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                                                <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{formatFileSize(ev.file_size)}</span>
+                                                <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)' }}>{new Date(ev.uploaded_at).toLocaleDateString('en-IN')}</span>
+                                                <Badge status={ev.status || 'UNKNOWN'} />
+                                            </div>
+                                            <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--rule2)' }}>
+                                                <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--ink3)', marginBottom: 3, letterSpacing: '0.08em' }}>SHA-256</div>
+                                                <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: isTampered ? '#ff4444' : 'var(--ink2)', wordBreak: 'break-all', lineHeight: 1.5 }}>{ev.current_hash}</div>
+                                            </div>
+                                            {ev.lastChecked && <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', marginTop: 6 }}>Last verified: {new Date(ev.lastChecked).toLocaleString('en-IN')}</div>}
                                         </div>
-                                        {ev.lastChecked && <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', marginTop: 6 }}>Last verified: {new Date(ev.lastChecked).toLocaleString('en-IN')}</div>}
-                                    </div>
-                                    <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                        <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => handleDownload(ev)}>
-                                            Download
-                                        </button>
-                                        <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => recheck(ev.id, ev.public_id)} disabled={verifying === ev.id}>
-                                            {verifying === ev.id ? 'Checking...' : 'Verify'}
-                                        </button>
+                                        <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                            <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => handleDownload(ev)}>
+                                                Download
+                                            </button>
+                                            <button className="btn" style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap' }} onClick={() => recheck(ev.id, ev.public_id)} disabled={verifying === ev.id}>
+                                                {verifying === ev.id ? 'Checking...' : 'Verify'}
+                                            </button>
+                                            {isTampered && (
+                                                <button
+                                                    className="btn"
+                                                    style={{ fontSize: 9, padding: '4px 10px', whiteSpace: 'nowrap', background: '#dc2626', color: '#fff', borderColor: '#b91c1c', fontWeight: 600 }}
+                                                    onClick={() => handleRevert(ev)}
+                                                    disabled={reverting === ev.id}
+                                                >
+                                                    {reverting === ev.id ? 'Reverting...' : 'Revert File'}
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))
+                            );
+                        })
                     )}
                 </div>
             </div>

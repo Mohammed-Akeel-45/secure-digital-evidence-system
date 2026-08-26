@@ -124,3 +124,24 @@ func (r *evidenceRepo) GetEvidenceStatus(ctx context.Context, evidenceIDs []int6
 
 	return e, nil
 }
+
+// UpdateEvidenceHash updates the file_hash for a given evidence ID.
+func (r *evidenceRepo) UpdateEvidenceHash(ctx context.Context, evidenceID int64, newHash string) error {
+	query := `
+		UPDATE integrity_schema.evidence_hashes
+		SET file_hash = @fileHash
+		WHERE evidence_id = @evidenceID
+	`
+	args := pgx.NamedArgs{
+		"evidenceID": evidenceID,
+		"fileHash":   newHash,
+	}
+
+	_, err := r.q(ctx).Exec(ctx, query, args)
+	if err != nil {
+		log.Printf("error: failed to update evidence hash, %v", err)
+		return fmt.Errorf("error: failed to update evidence hash, %w", err)
+	}
+
+	return nil
+}
