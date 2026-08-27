@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getCases, getEvidence, uploadEvidence, downloadEvidence, verifyEvidence } from '../../api/auth';
+import { getCases, getEvidence, uploadEvidence, downloadEvidence, verifyEvidence, revertEvidence } from '../../api/auth';
 import { Badge, Empty, SectionTitle, computeSHA256, formatFileSize, StatCard } from '../admin/AdminCommon';
 import { Field, ErrorBanner, SuccessBanner } from '../auth/FormParts';
 import { useAuth } from '../../context/AuthContext';
@@ -16,6 +16,8 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
     const [selectedCaseId, setSelectedCaseId] = useState(initialCaseId || '');
     const [evidence, setEvidence] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [verifyingId, setVerifyingId] = useState(null);
+    const [revertingId, setRevertingId] = useState(null);
 
     // Upload Form state
     const [dragging, setDragging] = useState(false);
@@ -26,7 +28,6 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [uploading, setUploading] = useState(false);
-    const [verifyingId, setVerifyingId] = useState(null);
 
     // Search and filter
     const [searchTerm, setSearchTerm] = useState('');
@@ -55,7 +56,7 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
                 setEvidence(Array.isArray(list) ? list : []);
             } else {
                 const caseList = cases.length > 0 ? cases : await getCases().catch(() => []);
-                const promises = caseList.map(c => 
+                const promises = caseList.map(c =>
                     getEvidence(c.public_id)
                         .then(items => Array.isArray(items) ? items.map(item => ({ ...item, case_title: c.title, case_id: c.public_id })) : [])
                         .catch(() => [])
@@ -143,12 +144,14 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
         setSuccess('');
         try {
             const res = await verifyEvidence(id);
-            const isValid = res.status === 'VALID' || res.status === 'VERIFIED';
+            const isValid = res.status.toUpperCase() === 'VALID' || res.status === 'VERIFIED';
             setEvidence(items => items.map(item => {
                 if ((item.public_id || item.id) === id) {
                     return {
                         ...item,
                         integrityStatus: isValid ? 'VALID' : 'TAMPERED',
+                        status: isValid ? 'VALID' : 'TAMPERED',
+                        current_hash: res.computed_hash || item.current_hash,
                         lastChecked: new Date().toISOString(),
                     };
                 }
@@ -164,6 +167,27 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
             setError('VERIFICATION FAILED: ' + (err.message || '').toUpperCase());
         } finally {
             setVerifyingId(null);
+        }
+    };
+
+    const handleRevert = async (ev) => {
+        const id = ev.public_id || ev.id;
+        const confirmRevert = window.confirm(
+            `Are you sure you want to revert "${ev.file_name}" to its previous known-good version? This will restore the original file in storage and record a REVERT event in the audit trail.`
+        );
+        if (!confirmRevert) return;
+
+        setRevertingId(id);
+        setError('');
+        setSuccess('');
+        try {
+            const res = await revertEvidence(id);
+            setSuccess(`EVIDENCE "${ev.file_name}" SUCCESSFULLY REVERTED TO ORIGINAL VERSION (${res.restored_hash || ''})`);
+            await loadAllEvidence();
+        } catch (err) {
+            setError('REVERT FAILED: ' + (err.message || '').toUpperCase());
+        } finally {
+            setRevertingId(null);
         }
     };
 
@@ -296,7 +320,7 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
                             {filteredEvidence.map(ev => {
                                 const fileExt = ev.file_name?.split('.').pop()?.toUpperCase() || 'BIN';
                                 const itemCaseTitle = ev.case_title || cases.find(c => c.public_id === ev.case_id)?.title;
-                                const status = ev.integrityStatus || 'VALID';
+                                const status = (ev.status || 'UNKNOWN').toUpperCase();
 
                                 return (
                                     <div key={ev.public_id || ev.id} style={{ padding: '16px 20px', borderBottom: '1px solid var(--rule2)' }}>
@@ -305,28 +329,28 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
                                                 width: 42,
                                                 height: 42,
                                                 background: 'var(--rule2)',
-                                                border: '1px solid var(--rule)',
                                                 display: 'flex',
-                                                flexDirection: 'column',
                                                 alignItems: 'center',
                                                 justifyContent: 'center',
                                                 flexShrink: 0,
                                                 fontFamily: 'var(--mono)',
-                                                fontSize: 9,
-                                                fontWeight: 700,
-                                                color: 'var(--ink)'
+                                                fontSize: 10,
+                                                fontWeight: 600,
+                                                color: 'var(--ink2)',
+                                                textTransform: 'uppercase',
+                                                borderRadius: 2
                                             }}>
-                                                <span>{fileExt.slice(0, 4)}</span>
+                                                {fileExt.slice(0, 4)}
                                             </div>
 
                                             <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
-                                                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', wordBreak: 'break-all' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                                                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>
                                                         {ev.file_name}
                                                     </span>
                                                     <Badge status={status} />
                                                     {ev.type && (
-                                                        <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--ink3)', background: 'rgba(255,255,255,0.04)', padding: '1px 6px' }}>
+                                                        <span style={{ fontFamily: 'var(--mono)', fontSize: 9, padding: '2px 6px', background: 'var(--rule2)', color: 'var(--ink3)' }}>
                                                             {ev.type}
                                                         </span>
                                                     )}
@@ -379,6 +403,16 @@ export function EvidenceVault({ initialCaseId = null, title = 'Evidence Vault', 
                                                 >
                                                     {verifyingId === (ev.public_id || ev.id) ? 'Verifying...' : 'Verify Hash'}
                                                 </button>
+                                                {status === 'TAMPERED' && (
+                                                    <button
+                                                        className="btn"
+                                                        style={{ fontSize: 9, padding: '5px 12px', background: '#dc2626', color: '#fff', borderColor: '#b91c1c', fontWeight: 600 }}
+                                                        onClick={() => handleRevert(ev)}
+                                                        disabled={revertingId === (ev.public_id || ev.id)}
+                                                    >
+                                                        {revertingId === (ev.public_id || ev.id) ? 'Reverting...' : 'Revert File'}
+                                                    </button>
+                                                )}
                                                 <button
                                                     className="btn"
                                                     style={{ fontSize: 9, padding: '5px 12px', color: 'var(--ink3)' }}

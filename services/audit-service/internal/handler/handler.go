@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
@@ -92,8 +93,9 @@ func (h *Handler) VerifyEvidence(c *gin.Context) {
 	}
 
 	authHeader := c.GetHeader("Authorization")
+	clientIP := c.ClientIP()
 
-	result, err := h.evidenceService.VerifyEvidence(c.Request.Context(), evidenceID, authHeader)
+	result, err := h.evidenceService.VerifyEvidence(c.Request.Context(), evidenceID, authHeader, clientIP)
 	if err != nil {
 		if errors.Is(err, cerrors.ErrEvidenceNotFound.Error) {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -128,6 +130,33 @@ func (h *Handler) VerifyEvidence(c *gin.Context) {
 		"algorithm":     result.Algorithm,
 		"message":       result.Message,
 	})
+}
+
+func (h *Handler) GetEvidenceStatus(c *gin.Context) {
+	strEvidenceIDs := strings.Split(c.Query("evidence_ids"), ",")
+	if len(strEvidenceIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing evidence ids"})
+		return
+	}
+
+	evidenceIDs := make([]int64, len(strEvidenceIDs))
+	for i := range len(strEvidenceIDs) {
+		val, err := strconv.Atoi(strEvidenceIDs[i])
+		if err != nil {
+			log.Printf("Failed to convert string to int: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error:": "Given id is not integer"})
+		}
+		evidenceIDs[i] = int64(val)
+	}
+
+	statuses, err := h.evidenceService.GetEvidenceStatus(c.Request.Context(), evidenceIDs)
+	if err != nil {
+		log.Printf("failed to get evidence status: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve evidence status"})
+		return
+	}
+
+	c.JSON(http.StatusOK, statuses)
 }
 
 // GetCustodyLogs returns chain-of-custody logs with optional filtering.

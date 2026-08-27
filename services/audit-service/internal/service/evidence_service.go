@@ -3,29 +3,43 @@ package service
 import (
 	"audit-service/internal/cerrors"
 	"audit-service/internal/repository"
+	"audit-service/internal/store"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"strings"
+	"time"
 )
 
 type EvidenceService interface {
-	VerifyEvidence(ctx context.Context, evidenceID string, authToken string) (*VerifyEvidenceResult, error)
+	VerifyEvidence(ctx context.Context, evidenceID string, authToken string, clientIP string) (*VerifyEvidenceResult, error)
+	GetEvidenceStatus(ctx context.Context, evidenceIDs []int64) ([]store.EvidenceStatus, error)
 }
 
 type evidenceService struct {
 	evidenceRepo repository.EvidenceRepo
+	auditRepo    repository.AuditRepo
+	actionRepo   repository.ActionRepo
 	fileFetcher  FileFetcher
 }
 
-func NewEvidenceService(evidenceRepo repository.EvidenceRepo, fileFetcher FileFetcher) EvidenceService {
+func NewEvidenceService(
+	evidenceRepo repository.EvidenceRepo,
+	auditRepo repository.AuditRepo,
+	actionRepo repository.ActionRepo,
+	fileFetcher FileFetcher,
+) EvidenceService {
 	if fileFetcher == nil {
 		fileFetcher = NewFileFetcher("", nil)
 	}
 	return &evidenceService{
 		evidenceRepo: evidenceRepo,
+		auditRepo:    auditRepo,
+		actionRepo:   actionRepo,
 		fileFetcher:  fileFetcher,
 	}
 }
@@ -46,8 +60,8 @@ func computeSHA256Hash(file io.ReadCloser) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func (e *evidenceService) VerifyEvidence(ctx context.Context, evidenceID string, authToken string) (*VerifyEvidenceResult, error) {
-	// 1. Get stored evidence hash from integrity database
+func (e *evidenceService) VerifyEvidence(ctx context.Context, evidenceID string, authToken string, clientIP string) (*VerifyEvidenceResult, error) {
+	// Get stored evidence hash from integrity database
 	evidenceHash, err := e.evidenceRepo.GetEvidenceHash(ctx, evidenceID)
 	if err != nil {
 		if errors.Is(err, cerrors.ErrEvidenceNotFound.Error) {
@@ -59,7 +73,7 @@ func (e *evidenceService) VerifyEvidence(ctx context.Context, evidenceID string,
 		return nil, err
 	}
 
-	// 2. Fetch evidence file from evidence service
+	// Fetch evidence file from evidence service
 	file, err := e.fileFetcher.GetFile(ctx, evidenceID, authToken)
 	if err != nil {
 		if errors.Is(err, cerrors.ErrFileNotFound.Error) {
@@ -79,7 +93,7 @@ func (e *evidenceService) VerifyEvidence(ctx context.Context, evidenceID string,
 	}
 	defer file.Close()
 
-	// 3. Compute current cryptographic hash of the file stream
+	// Compute current cryptographic hash of the file stream
 	computedHash, err := computeSHA256Hash(file)
 	if err != nil {
 		return &VerifyEvidenceResult{
@@ -90,23 +104,97 @@ func (e *evidenceService) VerifyEvidence(ctx context.Context, evidenceID string,
 		}, err
 	}
 
-	// 4. Compare current computed hash with the previously registered known-good hash
-	if !strings.EqualFold(computedHash, evidenceHash.FileHash) {
-		return &VerifyEvidenceResult{
-			Status:       "TAMPERED",
-			StoredHash:   evidenceHash.FileHash,
-			ComputedHash: computedHash,
-			Algorithm:    evidenceHash.Algorithm,
-			Message:      "Evidence integrity check failed: file hash does not match original registered hash",
-		}, nil
+	// Get original known-good hash from earliest audit log (or fallback to evidence_hashes)
+	originalHash := evidenceHash.FileHash
+	if e.auditRepo != nil {
+		if orig, err := e.auditRepo.GetOriginalEvidenceHash(ctx, evidenceHash.EvidenceID); err == nil && orig != "" {
+			originalHash = orig
+		}
 	}
 
-	// 5. Hashes match — Integrity Verified
+	// Compare current computed hash with original registered hash
+	isTampered := !strings.EqualFold(computedHash, originalHash)
+
+	resultStatus := "VALID"
+	logStatus := "unchanged"
+	message := "Evidence integrity verified: file hash matches original registered hash"
+
+	if isTampered {
+		resultStatus = "TAMPERED"
+		logStatus = "tampered"
+		message = "Evidence integrity check failed: file hash does not match original registered hash"
+
+		// Update evidence_hashes to reflect the current (tampered) file hash
+		if err := e.evidenceRepo.UpdateEvidenceHash(ctx, evidenceHash.EvidenceID, computedHash); err != nil {
+			log.Printf("warning: failed to update tampered evidence hash: %v", err)
+		}
+	}
+
+	// Retrieve previous audit log metadata to preserve case, user, and file names
+	var userID int64 = 1
+	var caseID int64 = 1
+	detailsMap := make(map[string]any)
+
+	if e.auditRepo != nil {
+		latestAudit, err := e.auditRepo.GetLatestAuditLogByEvidenceID(ctx, evidenceHash.EvidenceID)
+		if err == nil && latestAudit != nil {
+			userID = latestAudit.UserID
+			caseID = latestAudit.CaseID
+			for k, v := range latestAudit.Details {
+				detailsMap[k] = v
+			}
+		}
+	}
+
+	detailsMap["verified_status"] = resultStatus
+	detailsMap["original_hash"] = originalHash
+	detailsMap["stored_hash"] = originalHash
+	detailsMap["computed_hash"] = computedHash
+	detailsMap["verified_at"] = time.Now().UTC().Format(time.RFC3339)
+
+	detailsBytes, _ := json.Marshal(detailsMap)
+
+	// Log the VERIFY action into audit_logs
+	if e.auditRepo != nil && e.actionRepo != nil {
+		actionID, err := e.actionRepo.GetActionIDByName(ctx, "VERIFY")
+		if err != nil {
+			log.Printf("warning: failed to get action id for VERIFY: %v", err)
+			actionID = 3 // fallback if action id lookup fails
+		}
+
+		requestID := store.GenerateRequestID(evidenceHash.EvidenceID, computedHash, actionID, userID, caseID)
+
+		auditLog := store.AuditLog{
+			UserID:      userID,
+			CaseID:      caseID,
+			EvidenceId:  evidenceHash.EvidenceID,
+			ActionType:  actionID,
+			ServiceName: "audit-service",
+			IPAddress:   clientIP,
+			RequestID:   requestID,
+			Status:      logStatus,
+			Details:     string(detailsBytes),
+		}
+
+		if err := e.auditRepo.InsertAuditLog(ctx, auditLog); err != nil {
+			log.Printf("warning: failed to insert verify audit log: %v", err)
+		}
+	}
+
 	return &VerifyEvidenceResult{
-		Status:       "VALID",
+		Status:       resultStatus,
 		StoredHash:   evidenceHash.FileHash,
 		ComputedHash: computedHash,
 		Algorithm:    evidenceHash.Algorithm,
-		Message:      "Evidence integrity verified: file hash matches original registered hash",
+		Message:      message,
 	}, nil
+}
+
+func (e *evidenceService) GetEvidenceStatus(ctx context.Context, evidenceIDs []int64) ([]store.EvidenceStatus, error) {
+	statuses, err := e.evidenceRepo.GetEvidenceStatus(ctx, evidenceIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	return statuses, nil
 }

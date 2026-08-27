@@ -276,6 +276,10 @@ export async function verifyEvidence(evidenceId) {
   return request(`${AUDIT_BASE}/evidence/${evidenceId}/verify`);
 }
 
+export async function revertEvidence(evidenceId) {
+  return request(`${EVIDENCE_BASE}/${evidenceId}/revert`, { method: "POST" });
+}
+
 export async function getCustodyLogs(params = {}) {
   const cleanParams = Object.fromEntries(
     Object.entries(params).filter(

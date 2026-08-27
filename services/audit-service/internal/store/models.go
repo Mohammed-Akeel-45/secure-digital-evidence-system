@@ -14,8 +14,16 @@ type EvidenceDetails struct {
 }
 
 type EvidenceHash struct {
-	FileHash  string
-	Algorithm string
+	EvidenceID       int64
+	EvidencePublicID string
+	FileHash         string
+	Algorithm        string
+}
+
+type EvidenceStatus struct {
+	EvidenceID  int64  `json:"evidence_id" db:"evidence_id"`
+	Status      string `json:"status" db:"status"`
+	CurrentHash string `json:"current_hash" db:"current_hash"`
 }
 
 type EvidenceRegistrationDetails struct {
@@ -68,6 +76,8 @@ type AuditLog struct {
 	ServiceName string
 	IPAddress   string
 	RequestID   string
+	Status      string
+	Details     string
 }
 
 type AuditLogDTO struct {

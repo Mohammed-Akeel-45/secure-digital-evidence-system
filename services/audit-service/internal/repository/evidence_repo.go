@@ -70,7 +70,7 @@ func (r *evidenceRepo) InsertEvidenceHash(ctx context.Context, e store.EvidenceD
 func (r *evidenceRepo) GetEvidenceHash(ctx context.Context, evidenceID string) (*store.EvidenceHash, error) {
 	var e store.EvidenceHash
 	query := `
-		SELECT file_hash, algorithm
+		SELECT evidence_id, COALESCE(evidence_public_id::text, ''), file_hash, algorithm
 		FROM integrity_schema.evidence_hashes
 		WHERE evidence_public_id::text = @evidenceID OR evidence_id::text = @evidenceID
 		LIMIT 1
@@ -80,7 +80,7 @@ func (r *evidenceRepo) GetEvidenceHash(ctx context.Context, evidenceID string) (
 		"evidenceID": evidenceID,
 	}
 
-	if err := r.q(ctx).QueryRow(ctx, query, args).Scan(&e.FileHash, &e.Algorithm); err != nil {
+	if err := r.q(ctx).QueryRow(ctx, query, args).Scan(&e.EvidenceID, &e.EvidencePublicID, &e.FileHash, &e.Algorithm); err != nil {
 		if err == pgx.ErrNoRows {
 			return nil, cerrors.ErrEvidenceNotFound.Error
 		}
@@ -89,4 +89,59 @@ func (r *evidenceRepo) GetEvidenceHash(ctx context.Context, evidenceID string) (
 	}
 
 	return &e, nil
+}
+
+// Gets the file hash and status for given evidence IDs.
+func (r *evidenceRepo) GetEvidenceStatus(ctx context.Context, evidenceIDs []int64) ([]store.EvidenceStatus, error) {
+	query := `
+		SELECT evidence_id, current_hash, status
+		FROM integrity_schema.audit_logs
+		WHERE id IN (
+			SELECT MAX(id)
+			FROM integrity_schema.audit_logs
+			WHERE evidence_id = ANY(@evidenceIDs::bigint[])
+			GROUP BY evidence_id
+		)
+	`
+
+	args := pgx.NamedArgs{
+		"evidenceIDs": evidenceIDs,
+	}
+
+	rows, err := r.q(ctx).Query(ctx, query, args)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, cerrors.ErrEvidenceNotFound.Error
+		}
+		log.Printf("error: failed to get evidence status, %v", err)
+		return nil, fmt.Errorf("error: failed to get evidence status, %w", err)
+	}
+
+	e, err := pgx.CollectRows(rows, pgx.RowToStructByName[store.EvidenceStatus])
+	if err != nil {
+		return nil, err
+	}
+
+	return e, nil
+}
+
+// UpdateEvidenceHash updates the file_hash for a given evidence ID.
+func (r *evidenceRepo) UpdateEvidenceHash(ctx context.Context, evidenceID int64, newHash string) error {
+	query := `
+		UPDATE integrity_schema.evidence_hashes
+		SET file_hash = @fileHash
+		WHERE evidence_id = @evidenceID
+	`
+	args := pgx.NamedArgs{
+		"evidenceID": evidenceID,
+		"fileHash":   newHash,
+	}
+
+	_, err := r.q(ctx).Exec(ctx, query, args)
+	if err != nil {
+		log.Printf("error: failed to update evidence hash, %v", err)
+		return fmt.Errorf("error: failed to update evidence hash, %w", err)
+	}
+
+	return nil
 }

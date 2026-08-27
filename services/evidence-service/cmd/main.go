@@ -80,6 +80,11 @@ func main() {
 		middleware.JWTMiddleware(http.HandlerFunc(h.GetEvidence)),
 	).Methods("GET")
 
+	// Revert evidence to previous known-good version
+	router.Handle("/api/v1/evidence/{id}/revert",
+		middleware.JWTMiddleware(http.HandlerFunc(h.RevertEvidence)),
+	).Methods("POST")
+
 	log.Println("Evidence Service running on :3004 (with S3 Integration)")
 	http.ListenAndServe(":3004", router)
 }
