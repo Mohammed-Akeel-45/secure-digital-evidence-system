@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"evidence-service/internal/models"
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -72,4 +75,43 @@ func (c *AuditClient) RegisterAudit(ctx context.Context, req AuditRegistrationRe
 	}
 
 	return nil
+}
+
+func (c *AuditClient) GetEvidenceStatus(ctx context.Context, evidenceIDs []int64) ([]models.EvidenceStatus, error) {
+	if c.BaseURL == "" {
+		return nil, fmt.Errorf("AUDIT_SERVICE_URL not configured")
+	}
+
+	strEvidenceIDs := make([]string, len(evidenceIDs))
+	for i := range len(evidenceIDs) {
+		strEvidenceIDs[i] = strconv.Itoa(int(evidenceIDs[i]))
+	}
+
+	ids := strings.Join(strEvidenceIDs[:], ",")
+	url := fmt.Sprintf("%s/api/v1/audit/evidence/get-status?evidence_ids=%s", c.BaseURL, ids)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.Client.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("audit service returned status %d", resp.StatusCode)
+	}
+
+	var evidenceStatuses []models.EvidenceStatus
+
+	err = json.NewDecoder(resp.Body).Decode(&evidenceStatuses)
+	if err != nil {
+		return nil, err
+	}
+
+	return evidenceStatuses, nil
 }

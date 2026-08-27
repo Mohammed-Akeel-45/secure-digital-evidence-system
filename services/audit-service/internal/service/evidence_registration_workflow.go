@@ -32,9 +32,15 @@ func (ev *EvidenceRegistrationWorkflow) RegisterEvidence(ctx context.Context, ev
 			return err
 		}
 
-		// Pass txCtx instead of ctx to ensure that query is executed within the transaction.
-		if err := ev.evidenceRepo.InsertEvidenceHash(txCtx, evidence.ToEvidenceDetails()); err != nil {
-			return err
+		if evidence.Action == "REVERT" {
+			if err := ev.evidenceRepo.UpdateEvidenceHash(txCtx, evidence.EvidenceID, evidence.FileHash); err != nil {
+				return err
+			}
+		} else {
+			// Pass txCtx instead of ctx to ensure that query is executed within the transaction.
+			if err := ev.evidenceRepo.InsertEvidenceHash(txCtx, evidence.ToEvidenceDetails()); err != nil {
+				return err
+			}
 		}
 
 		if err := ev.custodyRepo.InsertCustodyLog(txCtx, evidence.ToCustodyLog(actionID)); err != nil {

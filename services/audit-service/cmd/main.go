@@ -50,7 +50,7 @@ func main() {
 
 	// Initialize the services.
 	registrationService := service.NewEvidenceRegistrationWorkflow(store, evidenceRepo, custodyRepo, auditRepo, actionRepo)
-	evidenceService := service.NewEvidenceService(evidenceRepo, nil)
+	evidenceService := service.NewEvidenceService(evidenceRepo, auditRepo, actionRepo, nil)
 	custodyService := service.NewCustodyService(custodyRepo)
 	auditService := service.NewAuditService(auditRepo)
 
@@ -62,6 +62,9 @@ func main() {
 	// Evidence registration & verification routes
 	router.POST("/api/v1/audit/evidence/register", handler.RegisterEvidence)
 	router.GET("/api/v1/audit/evidence/:id/verify", handler.VerifyEvidence)
+
+	// Evidence status routes.
+	router.GET("/api/v1/audit/evidence/get-status", handler.GetEvidenceStatus)
 
 	// Custody logs routes
 	router.GET("/api/v1/audit/custody-logs", handler.GetCustodyLogs)

@@ -1,7 +1,75 @@
 import React from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, decodeJWT } from '../context/AuthContext';
 import styles from './AppLayout.module.css';
+
+function SessionTimer() {
+  const { token, logout } = useAuth();
+  const [remaining, setRemaining] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!token) {
+      setRemaining(null);
+      return;
+    }
+
+    const claims = decodeJWT(token);
+    if (!claims || !claims.exp) {
+      setRemaining(null);
+      return;
+    }
+
+    const expTime = claims.exp;
+
+    const checkTime = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const diff = expTime - now;
+      if (diff <= 0) {
+        setRemaining(0);
+        logout();
+      } else {
+        setRemaining(diff);
+      }
+    };
+
+    checkTime();
+    const id = setInterval(checkTime, 1000);
+    return () => clearInterval(id);
+  }, [token, logout]);
+
+  if (remaining === null) return null;
+
+  const isExpired = remaining <= 0;
+  const isCritical = remaining > 0 && remaining <= 120;
+  const isWarning = remaining > 120 && remaining <= 300;
+  const hrs = Math.floor(remaining / 3600);
+  const mins = Math.floor((remaining % 3600) / 60);
+  const secs = remaining % 60;
+
+  let timeString = '';
+  if (hrs > 0) {
+    timeString = `${hrs}h ${String(mins).padStart(2, '0')}m ${String(secs).padStart(2, '0')}s`;
+  } else {
+    timeString = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  }
+
+  const statusColor = isExpired || isCritical ? '#ff4444' : isWarning ? '#f5a623' : '#00c878';
+  const borderColor = isExpired || isCritical ? 'rgba(255, 68, 68, 0.4)' : isWarning ? 'rgba(245, 166, 35, 0.4)' : 'var(--rule2)';
+
+  return (
+    <div
+      className={styles.sessionTimer}
+      title={isExpired ? 'Session Expired' : `Session time remaining: ${timeString}`}
+      style={{ borderColor }}
+    >
+      <span className={styles.sessionPulse} style={{ background: statusColor }} />
+      <span className={styles.sessionLabel}>SESSION</span>
+      <span className={styles.sessionTime} style={{ color: isExpired || isCritical ? '#ff4444' : isWarning ? '#f5a623' : 'var(--ink)' }}>
+        {isExpired ? 'EXPIRED' : timeString}
+      </span>
+    </div>
+  );
+}
 
 function ISTClock() {
   const [t, setT] = React.useState(new Date());
@@ -119,7 +187,7 @@ export function AppLayout({ navItems, activePage, onNavigate, children }) {
       <aside className={styles.sidebar}>
         {/* Logo */}
         <div className={styles.sidebarLogo} onClick={() => navigate(isAdmin ? '/admin/overview' : '/dashboard/cases')} style={{ cursor: 'pointer' }}>
-          <div className={styles.logoMark}>S</div>
+          <img src="/SDESlogo_512.svg" alt="SDES" className={styles.logoMark} />
           <div>
             <div className={styles.logoName}>SDES</div>
             <div className={styles.logoTagline}>Evidence System</div>
@@ -179,7 +247,10 @@ export function AppLayout({ navItems, activePage, onNavigate, children }) {
             <span className={styles.breadcrumbSep}>/</span>
             <span className={styles.breadcrumbPage}>{activeLabel}</span>
           </div>
-          <ISTClock />
+          <div className={styles.topbarActions}>
+            <SessionTimer />
+            <ISTClock />
+          </div>
         </header>
 
         {/* Page content */}

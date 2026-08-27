@@ -78,13 +78,23 @@ func (a auditRepo) InsertAuditLog(ctx context.Context, auditLog store.AuditLog) 
 	// Calculate the new hash for the row.
 	newHash := hashRowContents(auditLog, prevRowHash)
 
-	// Query to the new row into the database.
+	status := auditLog.Status
+	if status == "" {
+		status = "unchanged"
+	}
+
+	var detailsJSON []byte
+	if auditLog.Details != "" {
+		detailsJSON = []byte(auditLog.Details)
+	}
+
+	// Query to insert the new row into the database.
 	query := `
 			INSERT INTO integrity_schema.audit_logs(
-				user_id, case_id, evidence_id, action_type, service_name, ip_address, previous_hash, current_hash, request_id, status
+				user_id, case_id, evidence_id, action_type, service_name, ip_address, previous_hash, current_hash, request_id, status, details
 			)
 			VALUES(
-				@userID, @caseID, @evidenceID, @actionType, @serviceName, @ipAdress, @previousHash, @currentHash, @requestID, 'unchanged'
+				@userID, @caseID, @evidenceID, @actionType, @serviceName, @ipAddress, @previousHash, @currentHash, @requestID, @status, @details
 			)
 		`
 	args := pgx.NamedArgs{
@@ -93,10 +103,12 @@ func (a auditRepo) InsertAuditLog(ctx context.Context, auditLog store.AuditLog) 
 		"evidenceID":   auditLog.EvidenceId,
 		"actionType":   auditLog.ActionType,
 		"serviceName":  auditLog.ServiceName,
-		"ipAdress":     auditLog.IPAddress,
+		"ipAddress":    auditLog.IPAddress,
 		"previousHash": prevRowHash,
 		"currentHash":  newHash,
 		"requestID":    auditLog.RequestID,
+		"status":       status,
+		"details":      detailsJSON,
 	}
 
 	// Execute the query.
@@ -302,4 +314,115 @@ func (a *auditRepo) GetAuditLogByID(ctx context.Context, id string) (*store.Audi
 	}
 
 	return &l, nil
+}
+
+func (a *auditRepo) GetLatestAuditLogByEvidenceID(ctx context.Context, evidenceID int64) (*store.AuditLogDTO, error) {
+	query := `
+		SELECT 
+			al.public_id,
+			eh.evidence_public_id,
+			al.evidence_id,
+			al.case_id,
+			al.user_id,
+			al.request_id,
+			COALESCE(al.previous_hash, ''),
+			al.current_hash,
+			COALESCE(act.name, 'UNKNOWN'),
+			al.service_name,
+			al.ip_address::text,
+			al.status::text,
+			al.details,
+			al.created_at
+		FROM integrity_schema.audit_logs al
+		LEFT JOIN integrity_schema.actions act ON al.action_type = act.id
+		LEFT JOIN integrity_schema.evidence_hashes eh ON al.evidence_id = eh.evidence_id
+		WHERE al.evidence_id = @evidenceID
+		ORDER BY al.created_at DESC
+		LIMIT 1
+	`
+
+	args := pgx.NamedArgs{"evidenceID": evidenceID}
+	var l store.AuditLogDTO
+	var detailsJSON []byte
+	err := a.q(ctx).QueryRow(ctx, query, args).Scan(
+		&l.PublicID,
+		&l.EvidencePublicID,
+		&l.EvidenceID,
+		&l.CaseID,
+		&l.UserID,
+		&l.RequestID,
+		&l.PreviousHash,
+		&l.CurrentHash,
+		&l.Action,
+		&l.ServiceName,
+		&l.IPAddress,
+		&l.Status,
+		&detailsJSON,
+		&l.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if len(detailsJSON) > 0 {
+		var details map[string]any
+		if err := json.Unmarshal(detailsJSON, &details); err == nil {
+			l.Details = details
+			if fn, ok := details["file_name"].(string); ok {
+				l.EvidenceName = fn
+			}
+			if ct, ok := details["case_title"].(string); ok {
+				l.CaseTitle = ct
+			}
+			if un, ok := details["user_name"].(string); ok {
+				l.UserName = un
+			}
+			if cp, ok := details["case_public_id"].(string); ok {
+				l.CasePublicID = cp
+			}
+			if up, ok := details["user_public_id"].(string); ok {
+				l.UserPublicID = up
+			}
+		}
+	}
+
+	return &l, nil
+}
+
+func (a *auditRepo) GetOriginalEvidenceHash(ctx context.Context, evidenceID int64) (string, error) {
+	// First query the earliest UPLOAD audit log details for the evidence
+	query := `
+		SELECT 
+			COALESCE(al.details->>'file_hash', al.details->>'original_hash', al.details->>'stored_hash', '') AS original_hash
+		FROM integrity_schema.audit_logs al
+		JOIN integrity_schema.actions act ON al.action_type = act.id
+		WHERE al.evidence_id = @evidenceID AND act.name = 'UPLOAD'
+		ORDER BY al.id ASC
+		LIMIT 1
+	`
+	args := pgx.NamedArgs{"evidenceID": evidenceID}
+	var hash string
+	err := a.q(ctx).QueryRow(ctx, query, args).Scan(&hash)
+	if err == nil && hash != "" {
+		return hash, nil
+	}
+
+	// Fallback to earliest audit log for that evidence file
+	fallbackQuery := `
+		SELECT 
+			COALESCE(al.details->>'file_hash', al.details->>'original_hash', al.details->>'stored_hash', '') AS original_hash
+		FROM integrity_schema.audit_logs al
+		WHERE al.evidence_id = @evidenceID
+		ORDER BY al.id ASC
+		LIMIT 1
+	`
+	err = a.q(ctx).QueryRow(ctx, fallbackQuery, args).Scan(&hash)
+	if err == nil && hash != "" {
+		return hash, nil
+	}
+
+	return "", nil
 }

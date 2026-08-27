@@ -7,7 +7,9 @@ import (
 
 type EvidenceRepo interface {
 	InsertEvidenceHash(ctx context.Context, e store.EvidenceDetails) error
-	GetEvidenceHash(ctx context.Context, evidenceId string) (*store.EvidenceHash, error)
+	GetEvidenceHash(ctx context.Context, evidenceID string) (*store.EvidenceHash, error)
+	GetEvidenceStatus(ctx context.Context, evidenceIDs []int64) ([]store.EvidenceStatus, error)
+	UpdateEvidenceHash(ctx context.Context, evidenceID int64, newHash string) error
 }
 
 type CustodyRepo interface {
@@ -20,6 +22,8 @@ type AuditRepo interface {
 	InsertAuditLog(ctx context.Context, a store.AuditLog) error
 	ListAuditLogs(ctx context.Context, evidenceID string, caseID string, limit int, offset int) ([]store.AuditLogDTO, error)
 	GetAuditLogByID(ctx context.Context, id string) (*store.AuditLogDTO, error)
+	GetLatestAuditLogByEvidenceID(ctx context.Context, evidenceID int64) (*store.AuditLogDTO, error)
+	GetOriginalEvidenceHash(ctx context.Context, evidenceID int64) (string, error)
 }
 
 type ActionRepo interface {
